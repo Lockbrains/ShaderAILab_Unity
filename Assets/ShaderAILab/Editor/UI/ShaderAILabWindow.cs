@@ -34,6 +34,10 @@ namespace ShaderAILab.Editor.UI
         VisualElement _mainContent;
         VisualElement _dataFlowContent;
 
+        // Pass bar
+        VisualElement _passTabContainer;
+        Button _btnAddPass;
+
         // Sub-views
         BlockListView _blockListView;
         CodeEditorView _codeEditorView;
@@ -100,6 +104,10 @@ namespace ShaderAILab.Editor.UI
             _mainContent = rootVisualElement.Q<VisualElement>("mainContent");
             _dataFlowContent = rootVisualElement.Q<VisualElement>("dataFlowContent");
 
+            // Pass bar
+            _passTabContainer = rootVisualElement.Q<VisualElement>("passTabContainer");
+            _btnAddPass = rootVisualElement.Q<Button>("btnAddPass");
+
             // Code editor with syntax highlighting
             var codeScrollView = rootVisualElement.Q<ScrollView>("codeEditorContainer");
             if (codeScrollView != null && _codeEditorField != null)
@@ -146,8 +154,8 @@ namespace ShaderAILab.Editor.UI
             rootVisualElement.Q<Button>("btnApplyCode")?.RegisterCallback<ClickEvent>(_ => OnApplyCode());
             rootVisualElement.Q<Button>("btnRevertCode")?.RegisterCallback<ClickEvent>(_ => OnRevertCode());
             rootVisualElement.Q<Button>("btnSendPrompt")?.RegisterCallback<ClickEvent>(_ => OnSendPrompt());
+            _btnAddPass?.RegisterCallback<ClickEvent>(_ => OnAddPass());
 
-            // Clear placeholder on first focus
             if (_promptInput != null)
             {
                 bool placeholderActive = true;
@@ -188,7 +196,6 @@ namespace ShaderAILab.Editor.UI
 
             if (showNL)
             {
-                // Restore code editor content after returning from Data Flow tab
                 if (!string.IsNullOrEmpty(_selectedBlockId) && _document != null)
                     OnBlockSelected(_selectedBlockId);
             }
@@ -207,14 +214,188 @@ namespace ShaderAILab.Editor.UI
                 _dataFlowContent.Add(_dataFlowGraphView);
             }
 
-            if (_document != null)
-                _dataFlowGraphView?.Rebuild(_document.DataFlow);
+            if (_document?.ActivePass != null)
+                _dataFlowGraphView?.Rebuild(_document.ActivePass.DataFlow);
         }
 
         void OnDataFlowChanged()
         {
             if (_document != null)
                 _document.IsDirty = true;
+        }
+
+        // ---- Pass bar ----
+
+        void RebuildPassBar()
+        {
+            if (_passTabContainer == null || _document == null) return;
+            _passTabContainer.Clear();
+
+            for (int i = 0; i < _document.Passes.Count; i++)
+            {
+                var pass = _document.Passes[i];
+                int passIndex = i;
+
+                var btn = new Button(() => OnPassSelected(passIndex));
+                btn.text = pass.IsUsePass ? $"[{pass.Name}]" : pass.Name;
+                btn.AddToClassList("pass-tab");
+
+                if (pass.IsUsePass)
+                    btn.AddToClassList("pass-tab--usepass");
+                if (!pass.IsEnabled)
+                    btn.AddToClassList("pass-tab--disabled");
+                if (i == _document.ActivePassIndex)
+                    btn.AddToClassList("pass-tab--active");
+
+                btn.RegisterCallback<ContextClickEvent>(evt =>
+                {
+                    ShowPassContextMenu(passIndex);
+                    evt.StopPropagation();
+                });
+
+                _passTabContainer.Add(btn);
+            }
+        }
+
+        void OnPassSelected(int passIndex)
+        {
+            if (_document == null) return;
+            if (passIndex < 0 || passIndex >= _document.Passes.Count) return;
+            if (passIndex == _document.ActivePassIndex) return;
+
+            _document.SetActivePass(passIndex);
+            _selectedBlockId = null;
+            RefreshActivePassViews();
+        }
+
+        void RefreshActivePassViews()
+        {
+            if (_document == null) return;
+
+            RebuildPassBar();
+
+            var pass = _document.ActivePass;
+            if (pass == null) return;
+
+            _blockListView.Rebuild(pass);
+            _dataFlowGraphView?.Rebuild(pass.DataFlow);
+            RefreshPromptTargets();
+
+            if (pass.IsUsePass)
+            {
+                if (_codeEditorView != null)
+                    _codeEditorView.Code = $"// UsePass \"{pass.UsePassPath}\"\n// This pass references a built-in pass and cannot be edited.";
+                _codeEditorHeader.text = $"Pass: {pass.Name} (UsePass)";
+            }
+            else if (pass.Blocks.Count > 0)
+            {
+                OnBlockSelected(pass.Blocks[0].Id);
+            }
+            else
+            {
+                if (_codeEditorView != null)
+                    _codeEditorView.Code = "// No blocks in this pass. Click '+ Add Block' to create one.";
+                _codeEditorHeader.text = $"Pass: {pass.Name}";
+            }
+        }
+
+        void OnAddPass()
+        {
+            if (_document == null) return;
+
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Forward Lit Pass"), false, () => AddPassFromFactory(ShaderPass.CreateForwardLit()));
+            menu.AddItem(new GUIContent("Unlit Pass"), false, () => AddPassFromFactory(ShaderPass.CreateUnlit()));
+            menu.AddItem(new GUIContent("Outline Pass"), false, () => AddPassFromFactory(ShaderPass.CreateOutline()));
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("UsePass: ShadowCaster"), false, () => AddPassFromFactory(ShaderPass.CreateShadowCaster()));
+            menu.AddItem(new GUIContent("UsePass: DepthOnly"), false, () => AddPassFromFactory(ShaderPass.CreateDepthOnly()));
+            menu.ShowAsContext();
+        }
+
+        void AddPassFromFactory(ShaderPass pass)
+        {
+            _document.AddPass(pass);
+            _document.SetActivePass(_document.Passes.Count - 1);
+            RefreshActivePassViews();
+            _promptStatus.text = $"Added pass: {pass.Name}";
+        }
+
+        void ShowPassContextMenu(int passIndex)
+        {
+            if (_document == null || passIndex < 0 || passIndex >= _document.Passes.Count) return;
+            var pass = _document.Passes[passIndex];
+
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Rename..."), false, () => RenamePass(passIndex));
+
+            if (_document.Passes.Count > 1)
+                menu.AddItem(new GUIContent("Delete"), false, () => DeletePass(passIndex));
+            else
+                menu.AddDisabledItem(new GUIContent("Delete"));
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Enabled"), pass.IsEnabled, () => TogglePassEnabled(passIndex));
+
+            if (passIndex > 0)
+                menu.AddItem(new GUIContent("Move Up"), false, () => MovePass(passIndex, passIndex - 1));
+            if (passIndex < _document.Passes.Count - 1)
+                menu.AddItem(new GUIContent("Move Down"), false, () => MovePass(passIndex, passIndex + 1));
+
+            menu.ShowAsContext();
+        }
+
+        void RenamePass(int passIndex)
+        {
+            var pass = _document.Passes[passIndex];
+            string newName = pass.Name;
+            if (DialogRenameField(ref newName))
+            {
+                pass.Name = newName;
+                _document.IsDirty = true;
+                RebuildPassBar();
+            }
+        }
+
+        static bool DialogRenameField(ref string name)
+        {
+            string result = name;
+            bool ok = false;
+            result = EditorInputDialog.Show("Rename Pass", "Enter new pass name:", name);
+            if (!string.IsNullOrEmpty(result) && result != name)
+            {
+                name = result;
+                ok = true;
+            }
+            return ok;
+        }
+
+        void DeletePass(int passIndex)
+        {
+            var pass = _document.Passes[passIndex];
+            if (EditorUtility.DisplayDialog("Delete Pass",
+                    $"Delete pass \"{pass.Name}\"?", "Delete", "Cancel"))
+            {
+                _document.RemovePass(pass.Id);
+                _selectedBlockId = null;
+                RefreshActivePassViews();
+                _parameterPanelView.Rebuild(_document);
+                _promptStatus.text = $"Deleted pass: {pass.Name}";
+            }
+        }
+
+        void TogglePassEnabled(int passIndex)
+        {
+            var pass = _document.Passes[passIndex];
+            pass.IsEnabled = !pass.IsEnabled;
+            _document.IsDirty = true;
+            RebuildPassBar();
+        }
+
+        void MovePass(int fromIndex, int toIndex)
+        {
+            _document.MovePass(fromIndex, toIndex);
+            RebuildPassBar();
         }
 
         // ---- File watcher integration ----
@@ -276,15 +457,24 @@ namespace ShaderAILab.Editor.UI
             if (_document == null) return;
 
             _shaderNameLabel.text = $"Shader AILab - {_document.ShaderName}";
-            _blockListView.Rebuild(_document);
+
+            RebuildPassBar();
+
+            var pass = _document.ActivePass;
+            if (pass != null)
+                _blockListView.Rebuild(pass);
+
             _parameterPanelView.Rebuild(_document);
             _previewView?.SetShader(_document);
-            _dataFlowGraphView?.Rebuild(_document.DataFlow);
+
+            if (pass != null)
+                _dataFlowGraphView?.Rebuild(pass.DataFlow);
+
             _autoComplete?.SetCompletionSource(_document);
             RefreshPromptTargets();
 
-            if (_document.Blocks.Count > 0)
-                OnBlockSelected(_document.Blocks[0].Id);
+            if (pass != null && !pass.IsUsePass && pass.Blocks.Count > 0)
+                OnBlockSelected(pass.Blocks[0].Id);
         }
 
         void RefreshPromptTargets()
@@ -292,8 +482,13 @@ namespace ShaderAILab.Editor.UI
             if (_promptTarget == null || _document == null) return;
 
             var choices = new System.Collections.Generic.List<string> { "Global (auto-place)" };
-            foreach (var b in _document.Blocks)
-                choices.Add($"Block: {b.Title}");
+            var pass = _document.ActivePass;
+            if (pass != null && !pass.IsUsePass)
+            {
+                foreach (var b in pass.Blocks)
+                    choices.Add($"Block: {b.Title}");
+            }
+            choices.Add("New Pass");
             choices.Add("New Vertex Block");
             choices.Add("New Fragment Block");
             choices.Add("New Helper Function");
@@ -329,7 +524,8 @@ namespace ShaderAILab.Editor.UI
                     $"Delete block \"{block.Title}\"?", "Delete", "Cancel"))
             {
                 _document.RemoveBlock(blockId);
-                RefreshAll();
+                RefreshActivePassViews();
+                _parameterPanelView.Rebuild(_document);
             }
         }
 
@@ -346,7 +542,6 @@ namespace ShaderAILab.Editor.UI
         {
             if (_document == null) return;
 
-            // Auto-apply any pending code changes before saving
             if (!string.IsNullOrEmpty(_selectedBlockId))
             {
                 string code = _codeEditorView != null ? _codeEditorView.Code : _codeEditorField.value;
@@ -422,14 +617,12 @@ namespace ShaderAILab.Editor.UI
         {
             if (_document == null) return;
 
-            // Auto-apply current edits
             if (!string.IsNullOrEmpty(_selectedBlockId))
             {
                 string code = _codeEditorView != null ? _codeEditorView.Code : _codeEditorField.value;
                 _document.UpdateBlockCode(_selectedBlockId, code);
             }
 
-            // Save to temp path if no file, or save to actual path
             if (string.IsNullOrEmpty(_document.FilePath))
             {
                 _promptStatus.text = "Save the shader first before compiling.";
@@ -487,6 +680,7 @@ namespace ShaderAILab.Editor.UI
         void OnAddBlock()
         {
             if (_document == null) return;
+            if (_document.ActivePass == null || _document.ActivePass.IsUsePass) return;
 
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("Fragment Block"), false, () => AddBlockWithSection(ShaderSectionType.Fragment));
@@ -526,7 +720,8 @@ namespace ShaderAILab.Editor.UI
             var block = new ShaderBlock(title, intent, section);
             block.Code = code;
             _document.AddBlock(block);
-            RefreshAll();
+            RefreshActivePassViews();
+            _parameterPanelView.Rebuild(_document);
             OnBlockSelected(block.Id);
         }
 
@@ -639,7 +834,8 @@ namespace ShaderAILab.Editor.UI
 
                 _document.IsDirty = true;
                 _parameterPanelView.Rebuild(_document);
-                _blockListView.Rebuild(_document);
+                var pass = _document.ActivePass;
+                if (pass != null) _blockListView.Rebuild(pass);
                 _promptStatus.text = $"Property promoted: {prop.Name}";
                 popup.RemoveFromHierarchy();
             };
@@ -650,7 +846,24 @@ namespace ShaderAILab.Editor.UI
             _popupLayer.Add(popup);
         }
 
-        // ---- Prompt (placeholder for LLM integration) ----
+        // ---- Prompt (LLM integration) ----
+
+        static bool IsPassLevelRequest(string prompt)
+        {
+            if (string.IsNullOrEmpty(prompt)) return false;
+            string lower = prompt.ToLowerInvariant();
+            string[] passKeywords = {
+                "new pass", "second pass", "another pass", "add pass", "outline pass",
+                "描边", "第二个pass", "新pass", "新的pass", "添加pass",
+                "增加pass", "额外pass", "多pass", "multi-pass", "multipass",
+                "轮廓", "outline", "silhouette", "新增一个pass", "加一个pass"
+            };
+            foreach (string kw in passKeywords)
+            {
+                if (lower.Contains(kw)) return true;
+            }
+            return false;
+        }
 
         async void OnSendPrompt()
         {
@@ -666,6 +879,10 @@ namespace ShaderAILab.Editor.UI
                 return;
             }
 
+            // Auto-detect: if user asks for a new pass but target is "Global", upgrade to "New Pass"
+            if (targetContext == "Global (auto-place)" && IsPassLevelRequest(prompt))
+                targetContext = "New Pass";
+
             _promptStatus.text = "Generating...";
 
             try
@@ -675,11 +892,29 @@ namespace ShaderAILab.Editor.UI
 
                 if (!string.IsNullOrEmpty(rawResult))
                 {
-                    if (targetContext.StartsWith("Block:") && !string.IsNullOrEmpty(_selectedBlockId))
+                    var sectionType = ShaderSectionType.Fragment;
+                    if (targetContext.Contains("Vertex"))
+                        sectionType = ShaderSectionType.Vertex;
+                    else if (targetContext.Contains("Helper"))
+                        sectionType = ShaderSectionType.Helper;
+
+                    var parsed = LLM.PromptTemplates.ParseFullResponse(rawResult, sectionType);
+                    MergeNewProperties(parsed.Properties);
+
+                    // Pass-level response: create a new ShaderPass
+                    bool isPassResponse = targetContext == "New Pass" || parsed.PassInfo != null;
+
+                    if (isPassResponse && parsed.PassInfo != null && parsed.Blocks.Count > 0)
                     {
-                        // Editing existing block — parse to pick up any new properties
-                        var parsed = LLM.PromptTemplates.ParseFullResponse(rawResult, ShaderSectionType.Fragment);
-                        MergeNewProperties(parsed.Properties);
+                        CreatePassFromLLMResponse(parsed, prompt);
+                    }
+                    else if (targetContext.StartsWith("Block:") && !string.IsNullOrEmpty(_selectedBlockId))
+                    {
+                        var existingBlock = _document.FindBlockById(_selectedBlockId);
+                        var blockSection = existingBlock?.Section ?? ShaderSectionType.Fragment;
+                        // Re-parse with correct section if needed
+                        if (blockSection != sectionType)
+                            parsed = LLM.PromptTemplates.ParseFullResponse(rawResult, blockSection);
 
                         string code = parsed.Blocks.Count > 0 ? parsed.Blocks[0].Code : parsed.LeftoverCode;
                         if (string.IsNullOrEmpty(code))
@@ -693,22 +928,17 @@ namespace ShaderAILab.Editor.UI
                     }
                     else
                     {
-                        var sectionType = ShaderSectionType.Fragment;
-                        if (targetContext.Contains("Vertex"))
-                            sectionType = ShaderSectionType.Vertex;
-                        else if (targetContext.Contains("Helper"))
-                            sectionType = ShaderSectionType.Helper;
-
-                        var parsed = LLM.PromptTemplates.ParseFullResponse(rawResult, sectionType);
-                        MergeNewProperties(parsed.Properties);
-
                         string lastBlockId = null;
 
                         if (parsed.Blocks.Count > 0)
                         {
                             foreach (var pb in parsed.Blocks)
                             {
-                                var newBlock = new ShaderBlock(pb.Title, pb.Intent ?? prompt, pb.Section);
+                                var inferredSection = pb.Section;
+                                if (inferredSection == sectionType && targetContext == "Global (auto-place)")
+                                    inferredSection = InferSectionFromCode(pb.Code);
+
+                                var newBlock = new ShaderBlock(pb.Title, pb.Intent ?? prompt, inferredSection);
                                 newBlock.Code = pb.Code;
                                 foreach (var p in pb.ReferencedParams)
                                     newBlock.ReferencedParams.Add(p);
@@ -718,18 +948,20 @@ namespace ShaderAILab.Editor.UI
                         }
                         else
                         {
-                            // Fallback: LLM didn't use block tags
                             string code = !string.IsNullOrEmpty(parsed.LeftoverCode)
                                 ? parsed.LeftoverCode
                                 : LLM.PromptTemplates.ExtractCodeFromResponse(rawResult);
                             string title = ExtractTitleFromCode(code, prompt);
-                            var newBlock = new ShaderBlock(title, prompt, sectionType);
+                            var inferredSection = targetContext == "Global (auto-place)"
+                                ? InferSectionFromCode(code) : sectionType;
+                            var newBlock = new ShaderBlock(title, prompt, inferredSection);
                             newBlock.Code = code;
                             _document.AddBlock(newBlock);
                             lastBlockId = newBlock.Id;
                         }
 
-                        RefreshAll();
+                        RefreshActivePassViews();
+                        _parameterPanelView.Rebuild(_document);
                         if (lastBlockId != null)
                             OnBlockSelected(lastBlockId);
                     }
@@ -743,8 +975,54 @@ namespace ShaderAILab.Editor.UI
             }
         }
 
+        void CreatePassFromLLMResponse(LLM.PromptTemplates.ParsedLLMResponse parsed, string prompt)
+        {
+            var passInfo = parsed.PassInfo;
+            string passName = !string.IsNullOrEmpty(passInfo.Name) ? passInfo.Name : "NewPass";
+            string lightMode = !string.IsNullOrEmpty(passInfo.LightMode) ? passInfo.LightMode : "SRPDefaultUnlit";
+
+            var newPass = new ShaderPass(passName, lightMode);
+            newPass.Pragmas.AddRange(new[] {
+                "#pragma vertex vert",
+                "#pragma fragment frag"
+            });
+            newPass.Includes.Add("Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl");
+
+            bool hasCull = !string.IsNullOrEmpty(passInfo.CullOverride);
+            bool hasBlend = !string.IsNullOrEmpty(passInfo.BlendOverride);
+            bool hasZWrite = !string.IsNullOrEmpty(passInfo.ZWriteOverride);
+            if (hasCull || hasBlend || hasZWrite)
+            {
+                newPass.RenderState = new PassRenderState(
+                    hasCull ? passInfo.CullOverride : null,
+                    hasBlend ? passInfo.BlendOverride : null,
+                    hasZWrite ? passInfo.ZWriteOverride : null
+                );
+            }
+
+            foreach (var pb in parsed.Blocks)
+            {
+                var inferredSection = pb.Section;
+                if (inferredSection == ShaderSectionType.Unknown || inferredSection == ShaderSectionType.Fragment)
+                    inferredSection = InferSectionFromCode(pb.Code);
+
+                var newBlock = new ShaderBlock(pb.Title, pb.Intent ?? prompt, inferredSection);
+                newBlock.Code = pb.Code;
+                foreach (var p in pb.ReferencedParams)
+                    newBlock.ReferencedParams.Add(p);
+                newPass.AddBlock(newBlock);
+            }
+
+            _document.AddPass(newPass);
+            _document.SetActivePass(_document.Passes.Count - 1);
+            RefreshAll();
+            _promptStatus.text = $"New pass created: {passName}";
+        }
+
         async System.Threading.Tasks.Task OnSendDataFlowPrompt(string prompt)
         {
+            if (_document?.ActivePass == null) return;
+
             _promptStatus.text = "Analyzing data flow requirements...";
 
             try
@@ -755,6 +1033,8 @@ namespace ShaderAILab.Editor.UI
 
                 string result = await llmService.GenerateShaderCodeAsync(userPrompt, _document, "Data Flow");
 
+                var activeDataFlow = _document.ActivePass.DataFlow;
+
                 if (!string.IsNullOrEmpty(result))
                 {
                     var (fields, annotations) = LLM.PromptTemplates.ParseDataFlowResponse(result);
@@ -762,12 +1042,12 @@ namespace ShaderAILab.Editor.UI
                     int activated = 0;
                     foreach (string fieldName in fields)
                     {
-                        var autoActivated = _document.DataFlow.ActivateVaryingWithDependencies(fieldName);
+                        var autoActivated = activeDataFlow.ActivateVaryingWithDependencies(fieldName);
                         activated++;
 
                         if (annotations.TryGetValue(fieldName, out string annotation))
                         {
-                            var vf = _document.DataFlow.FindField(fieldName, Core.DataFlowStage.Varyings);
+                            var vf = activeDataFlow.FindField(fieldName, Core.DataFlowStage.Varyings);
                             if (vf != null) vf.Annotation = annotation;
                         }
 
@@ -775,7 +1055,7 @@ namespace ShaderAILab.Editor.UI
                         {
                             if (annotations.TryGetValue(autoName, out string autoAnnot))
                             {
-                                var af = _document.DataFlow.FindField(autoName, Core.DataFlowStage.Attributes);
+                                var af = activeDataFlow.FindField(autoName, Core.DataFlowStage.Attributes);
                                 if (af != null) af.Annotation = autoAnnot;
                             }
                         }
@@ -784,7 +1064,7 @@ namespace ShaderAILab.Editor.UI
                     _document.IsDirty = true;
 
                     if (_dataFlowGraphView != null)
-                        _dataFlowGraphView.Rebuild(_document.DataFlow);
+                        _dataFlowGraphView.Rebuild(activeDataFlow);
 
                     SwitchTab(EditorTab.DataFlow);
                     _promptStatus.text = $"Data Flow updated: {activated} field(s) activated.";
@@ -814,10 +1094,25 @@ namespace ShaderAILab.Editor.UI
             }
         }
 
-        /// <summary>
-        /// Derive a short title from code when the LLM didn't supply block tags.
-        /// Tries to use the first function name found in the code.
-        /// </summary>
+        static ShaderSectionType InferSectionFromCode(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return ShaderSectionType.Fragment;
+
+            var sig = System.Text.RegularExpressions.Regex.Match(code,
+                @"\b(void|half4|half3|half2|half|float4|float3|float2|float|int)\s+\w+\s*\(([^)]*)\)");
+            if (!sig.Success) return ShaderSectionType.Fragment;
+
+            string returnType = sig.Groups[1].Value;
+            string paramList = sig.Groups[2].Value;
+
+            if ((returnType == "half4" || returnType == "float4") && paramList.Contains("Varyings"))
+                return ShaderSectionType.Fragment;
+            if (returnType == "void" && paramList.Contains("inout") && paramList.Contains("float3"))
+                return ShaderSectionType.Vertex;
+
+            return ShaderSectionType.Helper;
+        }
+
         static string ExtractTitleFromCode(string code, string fallbackPrompt)
         {
             if (!string.IsNullOrEmpty(code))
@@ -827,12 +1122,10 @@ namespace ShaderAILab.Editor.UI
                 if (funcMatch.Success)
                 {
                     string name = funcMatch.Groups[1].Value;
-                    // Convert CamelCase → spaced words
                     string spaced = System.Text.RegularExpressions.Regex.Replace(name, @"([a-z])([A-Z])", "$1 $2");
                     return spaced;
                 }
             }
-            // Truncate the prompt as last resort
             if (fallbackPrompt.Length > 30)
                 return fallbackPrompt.Substring(0, 30) + "...";
             return fallbackPrompt;
@@ -863,6 +1156,24 @@ namespace ShaderAILab.Editor.UI
                 _promptStatus.text = sb.ToString();
                 Debug.LogWarning($"[ShaderAILab] {sb}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Simple input dialog for rename operations.
+    /// </summary>
+    internal static class EditorInputDialog
+    {
+        public static string Show(string title, string message, string defaultValue)
+        {
+            string result = defaultValue;
+            // Unity doesn't have a built-in text input dialog,
+            // so we use a simple approach via EditorUtility + a temp ScriptableObject isn't ideal.
+            // For now, cycle through a simple prompt fallback.
+            bool ok = EditorUtility.DisplayDialog(title,
+                $"{message}\n\nCurrent: \"{defaultValue}\"\n\n(Type in the console or use the Inspector to rename.)",
+                "OK", "Cancel");
+            return ok ? result : null;
         }
     }
 }

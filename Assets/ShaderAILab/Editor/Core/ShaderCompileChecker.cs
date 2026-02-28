@@ -50,7 +50,7 @@ namespace ShaderAILab.Editor.Core
                     Line = msg.line
                 };
 
-                foreach (var block in doc.Blocks)
+                foreach (var block in doc.AllBlocks)
                 {
                     if (msg.line >= block.StartLine && msg.line <= block.EndLine)
                     {

@@ -5,9 +5,6 @@ using System.Text.RegularExpressions;
 
 namespace ShaderAILab.Editor.Core
 {
-    /// <summary>
-    /// Parses .shader files that contain AILab metadata tags into a ShaderDocument.
-    /// </summary>
     public static class ShaderParser
     {
         static readonly Regex ReShaderName =
@@ -46,6 +43,42 @@ namespace ShaderAILab.Editor.Core
         static readonly Regex ReStructField =
             new Regex(@"^\s*(float[234]?|half[234]?|int|uint)\s+(\w+)\s*:\s*(\w+)\s*;", RegexOptions.Compiled);
 
+        static readonly Regex RePassTag =
+            new Regex(@"//\s*\[AILab_Pass:\s*(.*?)\]", RegexOptions.Compiled);
+
+        static readonly Regex RePassStart =
+            new Regex(@"^\s*Pass\s*\{", RegexOptions.Compiled);
+
+        static readonly Regex RePassName =
+            new Regex(@"^\s*Name\s+""([^""]+)""", RegexOptions.Compiled);
+
+        static readonly Regex ReLightModeTag =
+            new Regex(@"""LightMode""\s*=\s*""([^""]+)""", RegexOptions.Compiled);
+
+        static readonly Regex ReUsePass =
+            new Regex(@"^\s*UsePass\s+""([^""]+)""", RegexOptions.Compiled);
+
+        static readonly Regex RePragma =
+            new Regex(@"^\s*(#pragma\s+.+)$", RegexOptions.Compiled);
+
+        static readonly Regex ReInclude =
+            new Regex(@"^\s*#include\s+""([^""]+)""", RegexOptions.Compiled);
+
+        static readonly Regex ReHLSLPROGRAM =
+            new Regex(@"^\s*HLSLPROGRAM\s*$", RegexOptions.Compiled);
+
+        static readonly Regex ReENDHLSL =
+            new Regex(@"^\s*ENDHLSL\s*$", RegexOptions.Compiled);
+
+        static readonly Regex ReCull =
+            new Regex(@"^\s*Cull\s+(\w+)", RegexOptions.Compiled);
+
+        static readonly Regex ReBlend =
+            new Regex(@"^\s*Blend\s+(.+)$", RegexOptions.Compiled);
+
+        static readonly Regex ReZWrite =
+            new Regex(@"^\s*ZWrite\s+(\w+)", RegexOptions.Compiled);
+
         // -------------------------------------------------------------------
 
         public static ShaderDocument ParseFile(string filePath)
@@ -72,10 +105,183 @@ namespace ShaderAILab.Editor.Core
 
             ParseGlobalSettings(lines, doc);
             ParseProperties(lines, doc);
-            ParseBlocks(lines, doc);
-            ParseStructs(lines, doc);
+
+            var passRanges = DetectPassRanges(lines);
+
+            if (passRanges.Count > 0)
+            {
+                foreach (var range in passRanges)
+                {
+                    if (range.IsUsePass)
+                    {
+                        doc.Passes.Add(ShaderPass.CreateUsePass(range.UsePassPath));
+                    }
+                    else
+                    {
+                        var pass = ParseSinglePass(lines, range);
+                        doc.Passes.Add(pass);
+                    }
+                }
+            }
+            else
+            {
+                var fallbackPass = ShaderPass.CreateForwardLit();
+                ParseBlocksIntoPass(lines, 0, lines.Length - 1, fallbackPass);
+                ParseStructsIntoPass(lines, 0, lines.Length - 1, fallbackPass);
+                doc.Passes.Add(fallbackPass);
+            }
 
             return doc;
+        }
+
+        // -------------------------------------------------------------------
+        // Pass range detection
+        // -------------------------------------------------------------------
+
+        struct PassRange
+        {
+            public int StartLine;
+            public int EndLine;
+            public bool IsUsePass;
+            public string UsePassPath;
+        }
+
+        static List<PassRange> DetectPassRanges(string[] lines)
+        {
+            var ranges = new List<PassRange>();
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var usePassMatch = ReUsePass.Match(lines[i]);
+                if (usePassMatch.Success)
+                {
+                    ranges.Add(new PassRange
+                    {
+                        StartLine = i,
+                        EndLine = i,
+                        IsUsePass = true,
+                        UsePassPath = usePassMatch.Groups[1].Value
+                    });
+                    continue;
+                }
+
+                if (RePassStart.IsMatch(lines[i]))
+                {
+                    int braceCount = 0;
+                    int start = i;
+                    for (int j = i; j < lines.Length; j++)
+                    {
+                        foreach (char c in lines[j])
+                        {
+                            if (c == '{') braceCount++;
+                            else if (c == '}') braceCount--;
+                        }
+                        if (braceCount <= 0)
+                        {
+                            ranges.Add(new PassRange
+                            {
+                                StartLine = start,
+                                EndLine = j,
+                                IsUsePass = false,
+                                UsePassPath = null
+                            });
+                            i = j;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return ranges;
+        }
+
+        // -------------------------------------------------------------------
+        // Single pass parsing
+        // -------------------------------------------------------------------
+
+        static ShaderPass ParseSinglePass(string[] lines, PassRange range)
+        {
+            var pass = new ShaderPass();
+            string pendingPassTagName = null;
+            string pendingPassTagLightMode = null;
+
+            for (int i = Math.Max(0, range.StartLine - 3); i <= range.StartLine; i++)
+            {
+                var ptm = RePassTag.Match(lines[i]);
+                if (ptm.Success)
+                {
+                    foreach (Match kv in ReKV.Matches(ptm.Groups[1].Value))
+                    {
+                        string key = kv.Groups[1].Value.ToLowerInvariant();
+                        string val = kv.Groups[2].Value;
+                        switch (key)
+                        {
+                            case "name": pendingPassTagName = val; break;
+                            case "lightmode": pendingPassTagLightMode = val; break;
+                        }
+                    }
+                }
+            }
+
+            bool inHLSL = false;
+            bool hasPerPassRenderState = false;
+            string perPassCull = null, perPassBlend = null, perPassZWrite = null;
+
+            for (int i = range.StartLine; i <= range.EndLine; i++)
+            {
+                if (ReHLSLPROGRAM.IsMatch(lines[i])) { inHLSL = true; continue; }
+                if (ReENDHLSL.IsMatch(lines[i])) { inHLSL = false; continue; }
+
+                if (!inHLSL)
+                {
+                    var nameMatch = RePassName.Match(lines[i]);
+                    if (nameMatch.Success && string.IsNullOrEmpty(pendingPassTagName))
+                        pass.Name = nameMatch.Groups[1].Value;
+
+                    var lmMatch = ReLightModeTag.Match(lines[i]);
+                    if (lmMatch.Success && string.IsNullOrEmpty(pendingPassTagLightMode))
+                        pass.LightMode = lmMatch.Groups[1].Value;
+
+                    var cullMatch = ReCull.Match(lines[i]);
+                    if (cullMatch.Success) { perPassCull = cullMatch.Groups[1].Value; hasPerPassRenderState = true; }
+
+                    var blendMatch = ReBlend.Match(lines[i]);
+                    if (blendMatch.Success) { perPassBlend = blendMatch.Groups[1].Value.Trim(); hasPerPassRenderState = true; }
+
+                    var zwMatch = ReZWrite.Match(lines[i]);
+                    if (zwMatch.Success) { perPassZWrite = zwMatch.Groups[1].Value; hasPerPassRenderState = true; }
+                }
+
+                if (inHLSL)
+                {
+                    var pragmaMatch = RePragma.Match(lines[i]);
+                    if (pragmaMatch.Success)
+                    {
+                        pass.Pragmas.Add(pragmaMatch.Groups[1].Value.Trim());
+                        continue;
+                    }
+
+                    var includeMatch = ReInclude.Match(lines[i]);
+                    if (includeMatch.Success)
+                    {
+                        pass.Includes.Add(includeMatch.Groups[1].Value);
+                        continue;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(pendingPassTagName))
+                pass.Name = pendingPassTagName;
+            if (!string.IsNullOrEmpty(pendingPassTagLightMode))
+                pass.LightMode = pendingPassTagLightMode;
+
+            if (hasPerPassRenderState)
+                pass.RenderState = new PassRenderState(perPassCull, perPassBlend, perPassZWrite);
+
+            ParseBlocksIntoPass(lines, range.StartLine, range.EndLine, pass);
+            ParseStructsIntoPass(lines, range.StartLine, range.EndLine, pass);
+
+            return pass;
         }
 
         // -------------------------------------------------------------------
@@ -123,17 +329,17 @@ namespace ShaderAILab.Editor.Core
                     string val = kv.Groups[2].Value;
                     switch (key)
                     {
-                        case "name":    prop.Name        = val; break;
-                        case "display": prop.DisplayName = val; break;
-                        case "type":    prop.PropertyType = ParsePropertyType(val); break;
-                        case "default": prop.DefaultValue = val; break;
-                        case "min":     if (float.TryParse(val, out float mn)) prop.MinValue = mn; break;
-                        case "max":     if (float.TryParse(val, out float mx)) prop.MaxValue = mx; break;
-                        case "role":    prop.Role = val; break;
+                        case "name":       prop.Name           = val; break;
+                        case "display":    prop.DisplayName    = val; break;
+                        case "type":       prop.PropertyType   = ParsePropertyType(val); break;
+                        case "default":    prop.DefaultValue   = val; break;
+                        case "min":        if (float.TryParse(val, out float mn)) prop.MinValue = mn; break;
+                        case "max":        if (float.TryParse(val, out float mx)) prop.MaxValue = mx; break;
+                        case "role":       prop.Role           = val; break;
+                        case "defaulttex": prop.DefaultTexture = val; break;
                     }
                 }
 
-                // Grab the raw Unity property declaration on the next non-comment line
                 for (int j = i + 1; j < lines.Length && j <= i + 3; j++)
                 {
                     string trimmed = lines[j].Trim();
@@ -149,14 +355,24 @@ namespace ShaderAILab.Editor.Core
         }
 
         // -------------------------------------------------------------------
-        // Blocks
+        // Blocks (within a line range)
         // -------------------------------------------------------------------
 
-        static void ParseBlocks(string[] lines, ShaderDocument doc)
+        static void ParseBlocksIntoPass(string[] lines, int rangeStart, int rangeEnd, ShaderPass pass)
         {
-            int i = 0;
-            while (i < lines.Length)
+            ShaderSectionType currentSection = ShaderSectionType.Unknown;
+            int i = rangeStart;
+
+            while (i <= rangeEnd)
             {
+                var secMatch = ReSection.Match(lines[i]);
+                if (secMatch.Success)
+                {
+                    currentSection = ParseSectionName(secMatch.Groups[1].Value);
+                    i++;
+                    continue;
+                }
+
                 var sm = ReBlockStart.Match(lines[i]);
                 if (!sm.Success) { i++; continue; }
 
@@ -164,14 +380,14 @@ namespace ShaderAILab.Editor.Core
                 {
                     Title = sm.Groups[1].Value,
                     StartLine = i,
-                    Section = DetermineSection(lines, i)
+                    Section = currentSection
                 };
 
                 var codeLines = new List<string>();
                 bool isDisabled = false;
                 i++;
 
-                while (i < lines.Length)
+                while (i <= rangeEnd)
                 {
                     if (ReBlockEnd.IsMatch(lines[i]))
                     {
@@ -203,7 +419,6 @@ namespace ShaderAILab.Editor.Core
                         continue;
                     }
 
-                    // If block is disabled, code lines are prefixed with "// "
                     if (isDisabled)
                     {
                         string trimmed = lines[i].TrimStart();
@@ -224,15 +439,15 @@ namespace ShaderAILab.Editor.Core
 
                 block.IsEnabled = !isDisabled;
                 block.Code = DedentLines(codeLines);
-                doc.Blocks.Add(block);
+                pass.Blocks.Add(block);
             }
         }
 
         // -------------------------------------------------------------------
-        // Struct parsing → DataFlowGraph
+        // Struct parsing -> DataFlowGraph (within a line range)
         // -------------------------------------------------------------------
 
-        static void ParseStructs(string[] lines, ShaderDocument doc)
+        static void ParseStructsIntoPass(string[] lines, int rangeStart, int rangeEnd, ShaderPass pass)
         {
             var graph = DataFlowGraph.CreateDefault();
 
@@ -240,7 +455,7 @@ namespace ShaderAILab.Editor.Core
             var parsedVarys = new List<StructFieldInfo>();
             string currentStruct = null;
 
-            for (int i = 0; i < lines.Length; i++)
+            for (int i = rangeStart; i <= rangeEnd; i++)
             {
                 var sm = ReStructStart.Match(lines[i]);
                 if (sm.Success)
@@ -280,7 +495,7 @@ namespace ShaderAILab.Editor.Core
             if (parsedVarys.Count > 0)
                 ApplyParsedFields(graph, DataFlowStage.Varyings, parsedVarys);
 
-            doc.DataFlow = graph;
+            pass.DataFlow = graph;
         }
 
         struct StructFieldInfo
@@ -336,10 +551,6 @@ namespace ShaderAILab.Editor.Core
         // Helpers
         // -------------------------------------------------------------------
 
-        /// <summary>
-        /// Strip the common leading whitespace from parsed code lines so
-        /// the block stores only relative indentation.
-        /// </summary>
         static string DedentLines(List<string> codeLines)
         {
             if (codeLines.Count == 0) return "";
@@ -385,25 +596,13 @@ namespace ShaderAILab.Editor.Core
             return string.Join("\n", result).Trim();
         }
 
-        static ShaderSectionType DetermineSection(string[] lines, int blockLine)
+        static ShaderSectionType ParseSectionName(string sectionName)
         {
-            for (int i = blockLine - 1; i >= 0 && i > blockLine - 30; i--)
-            {
-                var sm = ReSection.Match(lines[i]);
-                if (sm.Success)
-                {
-                    string s = sm.Groups[1].Value.ToLowerInvariant();
-                    if (s.Contains("constant")) return ShaderSectionType.Constants;
-                    if (s.Contains("vertex"))   return ShaderSectionType.Vertex;
-                    if (s.Contains("fragment")) return ShaderSectionType.Fragment;
-                    if (s.Contains("helper"))   return ShaderSectionType.Helper;
-                }
-
-                // If another block start is found first, stop looking
-                if (ReBlockStart.IsMatch(lines[i])) break;
-            }
-
-            // Fallback: guess from block title (will be set after parse)
+            string s = sectionName.ToLowerInvariant();
+            if (s.Contains("constant")) return ShaderSectionType.Constants;
+            if (s.Contains("vertex"))   return ShaderSectionType.Vertex;
+            if (s.Contains("fragment")) return ShaderSectionType.Fragment;
+            if (s.Contains("helper"))   return ShaderSectionType.Helper;
             return ShaderSectionType.Unknown;
         }
 

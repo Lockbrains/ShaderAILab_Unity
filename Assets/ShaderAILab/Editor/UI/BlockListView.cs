@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UIElements;
 using ShaderAILab.Editor.Core;
 
@@ -7,7 +8,7 @@ namespace ShaderAILab.Editor.UI
 {
     /// <summary>
     /// Manages the left-panel list of natural language blocks with
-    /// inline expand/collapse to show code previews.
+    /// inline expand/collapse to show code previews and section filtering.
     /// </summary>
     public class BlockListView
     {
@@ -15,28 +16,101 @@ namespace ShaderAILab.Editor.UI
         readonly Dictionary<string, bool> _expandedState = new Dictionary<string, bool>();
         string _selectedId;
 
+        VisualElement _filterBar;
+        VisualElement _listArea;
+        ShaderSectionType? _activeFilter;
+        ShaderPass _currentPass;
+        readonly Dictionary<ShaderSectionType, Button> _filterButtons = new Dictionary<ShaderSectionType, Button>();
+        Button _allButton;
+
         public event Action<string> OnBlockSelected;
         public event Action<string> OnBlockDeleteRequested;
         public event Action<string, bool> OnBlockToggleEnabled;
 
+        static readonly Color ActiveBg = new Color(0.055f, 0.39f, 0.61f);
+        static readonly Color InactiveBg = new Color(0.235f, 0.235f, 0.235f);
+
         public BlockListView(VisualElement container)
         {
             _container = container;
+            BuildFilterBar();
+        }
+
+        void BuildFilterBar()
+        {
+            _filterBar = new VisualElement();
+            _filterBar.AddToClassList("block-filter-bar");
+
+            _allButton = MakeFilterButton("All", null);
+            _allButton.AddToClassList("block-filter-btn--active");
+            _filterBar.Add(_allButton);
+
+            var fragBtn = MakeFilterButton("Frag", ShaderSectionType.Fragment);
+            _filterButtons[ShaderSectionType.Fragment] = fragBtn;
+            _filterBar.Add(fragBtn);
+
+            var vertBtn = MakeFilterButton("Vert", ShaderSectionType.Vertex);
+            _filterButtons[ShaderSectionType.Vertex] = vertBtn;
+            _filterBar.Add(vertBtn);
+
+            var helpBtn = MakeFilterButton("Helper", ShaderSectionType.Helper);
+            _filterButtons[ShaderSectionType.Helper] = helpBtn;
+            _filterBar.Add(helpBtn);
+
+            _container.Add(_filterBar);
+
+            _listArea = new VisualElement();
+            _listArea.style.flexGrow = 1;
+            _container.Add(_listArea);
+        }
+
+        Button MakeFilterButton(string label, ShaderSectionType? section)
+        {
+            var btn = new Button(() => SetFilter(section)) { text = label };
+            btn.AddToClassList("block-filter-btn");
+            return btn;
+        }
+
+        void SetFilter(ShaderSectionType? section)
+        {
+            _activeFilter = section;
+
+            _allButton.EnableInClassList("block-filter-btn--active", section == null);
+            foreach (var kv in _filterButtons)
+                kv.Value.EnableInClassList("block-filter-btn--active", section == kv.Key);
+
+            RebuildList();
         }
 
         public void Rebuild(ShaderDocument doc)
         {
-            _container.Clear();
-            if (doc == null) return;
+            _currentPass = doc?.ActivePass;
+            RebuildList();
+        }
 
-            foreach (var block in doc.Blocks)
-                _container.Add(CreateBlockItem(block));
+        public void Rebuild(ShaderPass pass)
+        {
+            _currentPass = pass;
+            RebuildList();
+        }
+
+        void RebuildList()
+        {
+            _listArea.Clear();
+            if (_currentPass == null) return;
+
+            foreach (var block in _currentPass.Blocks)
+            {
+                if (_activeFilter.HasValue && block.Section != _activeFilter.Value)
+                    continue;
+                _listArea.Add(CreateBlockItem(block));
+            }
         }
 
         public void SetSelected(string blockId)
         {
             _selectedId = blockId;
-            foreach (var child in _container.Children())
+            foreach (var child in _listArea.Children())
             {
                 bool isSelected = child.userData as string == blockId;
                 child.EnableInClassList("block-item--selected", isSelected);

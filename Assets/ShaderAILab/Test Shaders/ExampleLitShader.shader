@@ -18,6 +18,10 @@
         _SpecularThreshold("Specular Threshold", Range(0.0, 1.0)) = 0.9
         // [AILab_Property: name="_SpecularSmoothness" display="Specular Smoothness" type="Range" default="0.01" min="0" max="1"]
         _SpecularSmoothness("Specular Smoothness", Range(0.0, 1.0)) = 0.01
+        // [AILab_Property: name="_OutlineWidth" display="Outline Width" type="Range" default="0.02" min="0" max="0.1"]
+        _OutlineWidth("Outline Width", Range(0,0.1)) = 0.02
+        // [AILab_Property: name="_OutlineColor" display="Outline Color" type="Color" default="(0,0,0,1)"]
+        _OutlineColor("Outline Color", Color) = (0,0,0,1)
     }
     SubShader {
         // [AILab_Global: cull="Back" blend="Off" zwrite="On"]
@@ -25,6 +29,7 @@
         Cull Back
         ZWrite On
 
+        // [AILab_Pass: name="ForwardLit" lightmode="UniversalForward"]
         Pass {
             Name "ForwardLit"
             Tags { "LightMode"="UniversalForward" }
@@ -52,6 +57,8 @@
                 float4 _ShadowColor;
                 float _SpecularThreshold;
                 float _SpecularSmoothness;
+                float _OutlineWidth;
+                float4 _OutlineColor;
             CBUFFER_END
 
             struct Attributes {
@@ -68,6 +75,61 @@
                 float fogFactor    : TEXCOORD3;
                 float4 shadowCoord : TEXCOORD4;
             };
+
+            // [AILab_Section: "Helper Functions"]
+            // [AILab_Block_Start: "Random 1D to 1D"]
+            // [AILab_Intent: "Generates a pseudo-random float from a float input."]
+            float Random11(float x) 
+            {
+                return frac(sin(x) * 43758.5453123);
+            }
+            // [AILab_Block_End]
+
+            // [AILab_Block_Start: "Random 2D to 1D"]
+            // [AILab_Intent: "Generates a pseudo-random float from a float2 input."]
+            float Random21(float2 uv) 
+            {
+                return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453123);
+            }
+            // [AILab_Block_End]
+
+            // [AILab_Block_Start: "Random 3D to 1D"]
+            // [AILab_Intent: "Generates a pseudo-random float from a float3 input."]
+            float Random31(float3 p) 
+            {
+                return frac(sin(dot(p, float3(12.9898, 78.233, 45.164))) * 43758.5453123);
+            }
+            // [AILab_Block_End]
+
+            // [AILab_Block_Start: "Random 1D to 2D"]
+            // [AILab_Intent: "Generates a pseudo-random float2 from a float input."]
+            float2 Random12(float x) 
+            {
+                return frac(sin(float2(x * 12.9898, x * 78.233)) * 43758.5453123);
+            }
+            // [AILab_Block_End]
+
+            // [AILab_Block_Start: "Random 2D to 2D"]
+            // [AILab_Intent: "Generates a pseudo-random float2 from a float2 input."]
+            float2 Random22(float2 uv) 
+            {
+                uv = float2(dot(uv, float2(127.1, 311.7)), dot(uv, float2(269.5, 183.3)));
+                return frac(sin(uv) * 43758.5453123);
+            }
+            // [AILab_Block_End]
+
+            // [AILab_Block_Start: "Random 3D to 3D"]
+            // [AILab_Intent: "Generates a pseudo-random float3 from a float3 input."]
+            float3 Random33(float3 p) 
+            {
+                p = float3(
+                    dot(p, float3(127.1, 311.7, 74.7)),
+                    dot(p, float3(269.5, 183.3, 246.1)),
+                    dot(p, float3(113.5, 271.9, 124.6))
+                );
+                return frac(sin(p) * 43758.5453123);
+            }
+            // [AILab_Block_End]
 
             // [AILab_Section: "Vertex"]
             // [AILab_Block_Start: "Standard Vertex Transform"]
@@ -140,6 +202,83 @@
 
         UsePass "Universal Render Pipeline/Lit/ShadowCaster"
         UsePass "Universal Render Pipeline/Lit/DepthOnly"
+        // [AILab_Pass: name="Outline" lightmode="SRPDefaultUnlit"]
+        Pass {
+            Name "Outline"
+            Tags { "LightMode"="SRPDefaultUnlit" }
+
+            Cull Front
+            ZWrite On
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
+
+            CBUFFER_START(UnityPerMaterial)
+                float4 _BaseColor;
+                float _Smoothness;
+                float _Metallic;
+                float4 _MainTex_ST;
+                float _ToonThreshold;
+                float _ToonSmoothness;
+                float4 _ShadowColor;
+                float _SpecularThreshold;
+                float _SpecularSmoothness;
+                float _OutlineWidth;
+                float4 _OutlineColor;
+            CBUFFER_END
+
+            struct Attributes {
+                float4 positionOS  : POSITION;
+            };
+
+            struct Varyings {
+                float4 positionCS  : SV_POSITION;
+            };
+
+            // [AILab_Section: "Vertex"]
+            // [AILab_Block_Start: "Outline Extrusion"]
+            // [AILab_Intent: "Extrude vertices outwards to create a silhouette shell for the outline"]
+            // [AILab_Param: "_OutlineWidth" role="parameter"]
+            void ExtrudeOutline(inout float3 positionOS) {
+                // Extrude the vertex position outwards. 
+                // Using positionOS as a fallback normal direction for extrusion.
+                float3 normalOS = normalize(positionOS);
+                positionOS += normalOS * _OutlineWidth;
+            }
+            // [AILab_Block_End]
+
+            Varyings vert(Attributes input) {
+                Varyings output = (Varyings)0;
+                float3 posOS = input.positionOS.xyz;
+                ExtrudeOutline(posOS);
+                VertexPositionInputs vpi = GetVertexPositionInputs(posOS);
+                output.positionCS = vpi.positionCS;
+                return output;
+            }
+
+            // [AILab_Section: "Fragment"]
+            // [AILab_Block_Start: "Outline Color"]
+            // [AILab_Intent: "Return a solid color for the extruded outline pass"]
+            // [AILab_Param: "_OutlineColor" role="parameter"]
+            half4 OutlineColor(Varyings input) {
+                return _OutlineColor;
+            }
+            // [AILab_Block_End]
+
+            half4 frag(Varyings input) : SV_Target {
+                half4 finalColor = half4(1,1,1,1);
+                finalColor = OutlineColor(input);
+                return finalColor;
+            }
+
+            ENDHLSL
+        }
+
     }
     FallBack "Hidden/Universal Render Pipeline/FallbackError"
 }

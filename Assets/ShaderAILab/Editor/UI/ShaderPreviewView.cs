@@ -87,6 +87,8 @@ namespace ShaderAILab.Editor.UI
                 _previewMaterial.SetColor(propertyName, c);
             else if (value is Vector4 v)
                 _previewMaterial.SetVector(propertyName, v);
+            else if (value is Texture tex)
+                _previewMaterial.SetTexture(propertyName, tex);
 
             RecreateMaterialEditor();
         }
@@ -279,6 +281,26 @@ namespace ShaderAILab.Editor.UI
                     if (int.TryParse(prop.DefaultValue, out int ival))
                         _previewMaterial.SetInt(prop.Name, ival);
                     break;
+                case ShaderPropertyType.Texture2D:
+                case ShaderPropertyType.Texture3D:
+                case ShaderPropertyType.Cubemap:
+                    _previewMaterial.SetTexture(prop.Name, ResolveDefaultTexture(prop));
+                    break;
+            }
+        }
+
+        static Texture ResolveDefaultTexture(ShaderProperty prop)
+        {
+            string key = string.IsNullOrEmpty(prop.DefaultTexture) ? "white" : prop.DefaultTexture;
+            switch (key.ToLowerInvariant())
+            {
+                case "white": return Texture2D.whiteTexture;
+                case "black": return Texture2D.blackTexture;
+                case "gray":
+                case "grey":  return Texture2D.grayTexture;
+                case "bump":  return Texture2D.normalTexture;
+                case "red":   return Texture2D.redTexture;
+                default:      return Texture2D.whiteTexture;
             }
         }
 

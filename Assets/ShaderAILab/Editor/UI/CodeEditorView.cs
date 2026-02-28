@@ -46,6 +46,28 @@ namespace ShaderAILab.Editor.UI
         string _pendingSnapshot;
         const long DebounceMs = 400;
 
+        // ---- Font size (persisted via EditorPrefs) ----
+        static int _cachedFontSize = -1;
+        const int MinFontSize = 8;
+        const int MaxFontSize = 32;
+        const int DefaultFontSize = 13;
+        const string FontSizePrefKey = "ShaderAILab_CodeFontSize";
+
+        static int CurrentFontSize
+        {
+            get
+            {
+                if (_cachedFontSize < 0)
+                    _cachedFontSize = EditorPrefs.GetInt(FontSizePrefKey, DefaultFontSize);
+                return _cachedFontSize;
+            }
+            set
+            {
+                _cachedFontSize = Mathf.Clamp(value, MinFontSize, MaxFontSize);
+                EditorPrefs.SetInt(FontSizePrefKey, _cachedFontSize);
+            }
+        }
+
         // ---- Events ----
         public event Action<string> OnCodeChanged;
         public event Action OnInlineLLMRequested;
@@ -167,6 +189,9 @@ namespace ShaderAILab.Editor.UI
             _scrollView.Clear();
             _scrollView.Add(_root);
 
+            // Ctrl/Cmd + scroll wheel to zoom font size
+            _scrollView.RegisterCallback<WheelEvent>(OnWheelZoom, TrickleDown.TrickleDown);
+
             WireEvents();
             RefreshHighlight();
         }
@@ -187,8 +212,11 @@ namespace ShaderAILab.Editor.UI
         }
 
         /// <summary>
-        /// Apply a monospace font to the editor, highlight layer, and line numbers.
-        /// Loads FiraMono from project, falling back to system monospace fonts.
+        /// Apply a monospace font and current font size to the editor,
+        /// highlight layer, and line numbers.
+        /// Uses unityFontDefinition (the modern API) which takes precedence
+        /// over unityFont in Unity 2021+, fixing the issue where the theme's
+        /// default font-definition would silently override our legacy font setting.
         /// </summary>
         void ApplyMonoFont()
         {
@@ -196,21 +224,25 @@ namespace ShaderAILab.Editor.UI
                 _monoFont = LoadMonoFont();
             if (_monoFont == null) return;
 
-            var style = new StyleFont(_monoFont);
-            _highlight.style.unityFont = style;
-            _lineNumbers.style.unityFont = style;
+            var fontDef = FontDefinition.FromFont(_monoFont);
+            int size = CurrentFontSize;
 
-            // Force font on every text-rendering element inside the TextField
-            ApplyFontRecursive(_editor, _monoFont);
+            _highlight.style.unityFontDefinition = new StyleFontDefinition(fontDef);
+            _highlight.style.fontSize = size;
+
+            _lineNumbers.style.unityFontDefinition = new StyleFontDefinition(fontDef);
+            _lineNumbers.style.fontSize = size;
+
+            ApplyFontRecursive(_editor, fontDef, size);
         }
 
-        static void ApplyFontRecursive(VisualElement root, Font font)
+        static void ApplyFontRecursive(VisualElement root, FontDefinition fontDef, int fontSize)
         {
-            if (root is TextElement te)
-                te.style.unityFont = new StyleFont(font);
+            root.style.unityFontDefinition = new StyleFontDefinition(fontDef);
+            root.style.fontSize = fontSize;
 
             foreach (var child in root.Children())
-                ApplyFontRecursive(child, font);
+                ApplyFontRecursive(child, fontDef, fontSize);
         }
 
         static Font _monoFont;
@@ -286,6 +318,20 @@ namespace ShaderAILab.Editor.UI
             });
             // Re-apply transparency whenever the editor rebuilds its internal elements
             _editor.RegisterCallback<GeometryChangedEvent>(_ => MakeFullyTransparent(_editor));
+        }
+
+        void OnWheelZoom(WheelEvent evt)
+        {
+            if (!evt.ctrlKey && !evt.commandKey) return;
+
+            evt.StopPropagation();
+            evt.PreventDefault();
+
+            int prev = CurrentFontSize;
+            CurrentFontSize = prev + (evt.delta.y > 0 ? -1 : 1);
+
+            if (CurrentFontSize != prev)
+                ApplyMonoFont();
         }
 
         void OnValueChanged(ChangeEvent<string> evt)

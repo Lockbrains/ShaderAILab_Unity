@@ -1,13 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ShaderAILab.Editor.Core
 {
-    /// <summary>
-    /// Writes a ShaderDocument back to a .shader file with AILab metadata tags.
-    /// Supports both full regeneration and targeted block replacement.
-    /// </summary>
     public static class ShaderWriter
     {
         const string Indent = "            ";
@@ -49,11 +46,9 @@ namespace ShaderAILab.Editor.Core
 
             var result = new List<string>();
 
-            // Lines before the block's internal code (keep the start tag and metadata lines)
             for (int i = 0; i <= block.StartLine; i++)
                 result.Add(lines[i]);
 
-            // Re-emit intent and param tags
             if (!string.IsNullOrEmpty(block.Intent))
                 result.Add($"{Indent}// [AILab_Intent: \"{block.Intent}\"]");
             foreach (string p in block.ReferencedParams)
@@ -63,11 +58,9 @@ namespace ShaderAILab.Editor.Core
                 result.Add($"{Indent}// [AILab_Param: \"{p}\" role=\"{role}\"]");
             }
 
-            // New code
             foreach (string codeLine in newCode.Split('\n'))
                 result.Add(Indent + codeLine.TrimEnd('\r'));
 
-            // Lines from block end tag onward
             for (int i = block.EndLine; i < lines.Length; i++)
                 result.Add(lines[i]);
 
@@ -83,7 +76,7 @@ namespace ShaderAILab.Editor.Core
             sb.AppendLine("    Properties {");
             foreach (var p in doc.Properties)
             {
-                sb.AppendLine($"        // [AILab_Property: name=\"{p.Name}\" display=\"{p.DisplayName}\" type=\"{PropertyTypeString(p)}\" default=\"{p.DefaultValue}\"{RangeAttrs(p)}]");
+                sb.AppendLine($"        // [AILab_Property: name=\"{p.Name}\" display=\"{p.DisplayName}\" type=\"{PropertyTypeString(p)}\" default=\"{p.DefaultValue}\"{RangeAttrs(p)}{TextureAttrs(p)}]");
                 if (!string.IsNullOrEmpty(p.RawDeclaration))
                     sb.AppendLine($"        {p.RawDeclaration}");
                 else
@@ -103,49 +96,72 @@ namespace ShaderAILab.Editor.Core
                 sb.AppendLine($"        Blend {g.BlendMode}");
             sb.AppendLine($"        ZWrite {g.ZWriteMode}");
             sb.AppendLine();
+
+            foreach (var pass in doc.Passes)
+            {
+                if (pass.IsUsePass)
+                {
+                    sb.AppendLine($"        UsePass \"{pass.UsePassPath}\"");
+                }
+                else
+                {
+                    WritePass(sb, doc, pass);
+                }
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("    FallBack \"Hidden/Universal Render Pipeline/FallbackError\"");
+        }
+
+        static void WritePass(StringBuilder sb, ShaderDocument doc, ShaderPass pass)
+        {
+            sb.AppendLine($"        // [AILab_Pass: name=\"{pass.Name}\" lightmode=\"{pass.LightMode}\"]");
             sb.AppendLine("        Pass {");
-            sb.AppendLine("            Name \"ForwardLit\"");
-            sb.AppendLine("            Tags { \"LightMode\"=\"UniversalForward\" }");
+            sb.AppendLine($"            Name \"{pass.Name}\"");
+            if (!string.IsNullOrEmpty(pass.LightMode))
+                sb.AppendLine($"            Tags {{ \"LightMode\"=\"{pass.LightMode}\" }}");
+
+            if (pass.RenderState != null && pass.RenderState.HasOverrides)
+            {
+                sb.AppendLine();
+                if (!string.IsNullOrEmpty(pass.RenderState.CullMode))
+                    sb.AppendLine($"            Cull {pass.RenderState.CullMode}");
+                if (!string.IsNullOrEmpty(pass.RenderState.BlendMode) && pass.RenderState.BlendMode != "Off")
+                    sb.AppendLine($"            Blend {pass.RenderState.BlendMode}");
+                if (!string.IsNullOrEmpty(pass.RenderState.ZWriteMode))
+                    sb.AppendLine($"            ZWrite {pass.RenderState.ZWriteMode}");
+            }
+
             sb.AppendLine();
             sb.AppendLine("            HLSLPROGRAM");
-            sb.AppendLine("            #pragma vertex vert");
-            sb.AppendLine("            #pragma fragment frag");
-            sb.AppendLine("            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE");
-            sb.AppendLine("            #pragma multi_compile _ _ADDITIONAL_LIGHTS");
-            sb.AppendLine("            #pragma multi_compile_fragment _ _SHADOWS_SOFT");
-            sb.AppendLine("            #pragma multi_compile_fog");
+
+            foreach (string pragma in pass.Pragmas)
+                sb.AppendLine($"            {pragma}");
             sb.AppendLine();
-            sb.AppendLine("            #include \"Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl\"");
-            sb.AppendLine("            #include \"Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl\"");
+
+            foreach (string include in pass.Includes)
+                sb.AppendLine($"            #include \"{include}\"");
             sb.AppendLine();
 
             WriteCBufferAndSamplers(sb, doc);
+            WriteStructs(sb, pass);
 
-            WriteStructs(sb, doc);
+            WriteBlocksBySection(sb, doc, pass, ShaderSectionType.Constants, "Constants");
+            WriteBlocksBySection(sb, doc, pass, ShaderSectionType.Helper, "Helper Functions");
 
-            WriteBlocksBySection(sb, doc, ShaderSectionType.Constants, "Constants");
-            WriteBlocksBySection(sb, doc, ShaderSectionType.Helper, "Helper Functions");
-
-            // Vertex shader
             sb.AppendLine("            // [AILab_Section: \"Vertex\"]");
-            WriteBlocksBySection(sb, doc, ShaderSectionType.Vertex, null);
-            WriteVertexMain(sb, doc);
+            WriteBlocksBySection(sb, doc, pass, ShaderSectionType.Vertex, null);
+            WriteVertexMain(sb, pass);
 
-            // Fragment shader
             sb.AppendLine("            // [AILab_Section: \"Fragment\"]");
-            WriteBlocksBySection(sb, doc, ShaderSectionType.Fragment, null);
-            WriteFragmentMain(sb, doc);
+            WriteBlocksBySection(sb, doc, pass, ShaderSectionType.Fragment, null);
+            WriteFragmentMain(sb, pass);
 
-            // Unknown section blocks
-            WriteBlocksBySection(sb, doc, ShaderSectionType.Unknown, null);
+            WriteBlocksBySection(sb, doc, pass, ShaderSectionType.Unknown, null);
 
             sb.AppendLine("            ENDHLSL");
             sb.AppendLine("        }");
             sb.AppendLine();
-            sb.AppendLine("        UsePass \"Universal Render Pipeline/Lit/ShadowCaster\"");
-            sb.AppendLine("        UsePass \"Universal Render Pipeline/Lit/DepthOnly\"");
-            sb.AppendLine("    }");
-            sb.AppendLine("    FallBack \"Hidden/Universal Render Pipeline/FallbackError\"");
         }
 
         static void WriteCBufferAndSamplers(StringBuilder sb, ShaderDocument doc)
@@ -168,13 +184,11 @@ namespace ShaderAILab.Editor.Core
                 foreach (var p in doc.Properties)
                 {
                     if (p.PropertyType == ShaderPropertyType.Texture2D)
-                    {
                         sb.AppendLine($"            TEXTURE2D({p.Name}); SAMPLER(sampler{p.Name});");
-                    }
+                    else if (p.PropertyType == ShaderPropertyType.Texture3D)
+                        sb.AppendLine($"            TEXTURE3D({p.Name}); SAMPLER(sampler{p.Name});");
                     else if (p.PropertyType == ShaderPropertyType.Cubemap)
-                    {
                         sb.AppendLine($"            TEXTURECUBE({p.Name}); SAMPLER(sampler{p.Name});");
-                    }
                 }
                 sb.AppendLine();
             }
@@ -198,6 +212,8 @@ namespace ShaderAILab.Editor.Core
                             sb.AppendLine($"                float4 {p.Name};");
                             break;
                         case ShaderPropertyType.Texture2D:
+                        case ShaderPropertyType.Texture3D:
+                        case ShaderPropertyType.Cubemap:
                             sb.AppendLine($"                float4 {p.Name}_ST;");
                             break;
                     }
@@ -207,9 +223,10 @@ namespace ShaderAILab.Editor.Core
             }
         }
 
-        static void WriteBlocksBySection(StringBuilder sb, ShaderDocument doc, ShaderSectionType section, string sectionLabel)
+        static void WriteBlocksBySection(StringBuilder sb, ShaderDocument doc, ShaderPass pass,
+            ShaderSectionType section, string sectionLabel)
         {
-            var blocks = doc.GetBlocksBySection(section);
+            var blocks = pass.GetBlocksBySection(section);
             if (blocks.Count == 0) return;
 
             if (!string.IsNullOrEmpty(sectionLabel))
@@ -217,8 +234,6 @@ namespace ShaderAILab.Editor.Core
 
             foreach (var b in blocks)
             {
-                // Skip blocks that only contain variable declarations
-                // (the CBUFFER is auto-generated from doc.Properties)
                 if (IsDeclarationOnlyBlock(b.Code))
                 {
                     sb.AppendLine($"            // [AILab_Block_Start: \"{b.Title}\"]");
@@ -257,9 +272,10 @@ namespace ShaderAILab.Editor.Core
             }
         }
 
-        static void WriteStructs(StringBuilder sb, ShaderDocument doc)
+        static void WriteStructs(StringBuilder sb, ShaderPass pass)
         {
-            var df = doc.DataFlow;
+            var df = pass.DataFlow;
+            if (df == null) return;
 
             sb.AppendLine("            struct Attributes {");
             foreach (var f in df.AttributeFields)
@@ -293,18 +309,19 @@ namespace ShaderAILab.Editor.Core
             sb.AppendLine();
         }
 
-        static void WriteVertexMain(StringBuilder sb, ShaderDocument doc)
+        static void WriteVertexMain(StringBuilder sb, ShaderPass pass)
         {
-            var df = doc.DataFlow;
+            var df = pass.DataFlow;
+            if (df == null) return;
+
             sb.AppendLine("            Varyings vert(Attributes input) {");
             sb.AppendLine("                Varyings output = (Varyings)0;");
 
-            // Call vertex blocks first (may modify posOS)
             bool hasPositionOS = df.FindField("positionOS", DataFlowStage.Attributes)?.IsActive ?? false;
             if (hasPositionOS)
                 sb.AppendLine("                float3 posOS = input.positionOS.xyz;");
 
-            foreach (var b in doc.GetBlocksBySection(ShaderSectionType.Vertex))
+            foreach (var b in pass.GetBlocksBySection(ShaderSectionType.Vertex))
             {
                 if (!b.IsEnabled) continue;
                 if (IsDeclarationOnlyBlock(b.Code)) continue;
@@ -312,14 +329,11 @@ namespace ShaderAILab.Editor.Core
                 var sig = ExtractFunctionSignature(b.Code);
                 if (sig == null) continue;
 
-                // Only auto-call if it's a void function with simple parameters
                 string paramStr = sig.Value.parameters.Trim();
                 if (sig.Value.returnType == "void" && paramStr.Contains("float3"))
                     sb.AppendLine($"                {sig.Value.name}(posOS);");
             }
 
-            // Emit transform code for each active dependency using a deduplication set
-            // so shared helpers (like vpi) are only declared once.
             var emittedDeps = new HashSet<string>();
             bool needsVPI = false;
             bool needsVNI = false;
@@ -349,7 +363,6 @@ namespace ShaderAILab.Editor.Core
                     sb.AppendLine("                VertexNormalInputs vni = GetVertexNormalInputs(input.normalOS);");
             }
 
-            // Emit per-field assignments (skip lines that declare vpi/vni since we handled them above)
             foreach (var vf in df.VaryingFields)
             {
                 if (!vf.IsActive) continue;
@@ -377,12 +390,12 @@ namespace ShaderAILab.Editor.Core
             sb.AppendLine();
         }
 
-        static void WriteFragmentMain(StringBuilder sb, ShaderDocument doc)
+        static void WriteFragmentMain(StringBuilder sb, ShaderPass pass)
         {
             sb.AppendLine("            half4 frag(Varyings input) : SV_Target {");
             sb.AppendLine("                half4 finalColor = half4(1,1,1,1);");
 
-            foreach (var b in doc.GetBlocksBySection(ShaderSectionType.Fragment))
+            foreach (var b in pass.GetBlocksBySection(ShaderSectionType.Fragment))
             {
                 if (!b.IsEnabled) continue;
                 if (IsDeclarationOnlyBlock(b.Code)) continue;
@@ -390,7 +403,6 @@ namespace ShaderAILab.Editor.Core
                 var sig = ExtractFunctionSignature(b.Code);
                 if (sig == null) continue;
 
-                // Only call functions that accept (Varyings ...) as their sole parameter
                 string paramStr = sig.Value.parameters.Trim();
                 bool takesVaryingsOnly = paramStr.StartsWith("Varyings");
                 int commaCount = 0;
@@ -408,7 +420,6 @@ namespace ShaderAILab.Editor.Core
                     else if (returnType == "void")
                         sb.AppendLine($"                {funcName}(input);");
                 }
-                // Functions with complex signatures are helper-like — not auto-called
             }
 
             sb.AppendLine("                return finalColor;");
@@ -420,10 +431,6 @@ namespace ShaderAILab.Editor.Core
         // Utility
         // --------------------------------------------------------
 
-        /// <summary>
-        /// Remove the common leading whitespace from all lines so code stored
-        /// with its original file indentation gets written back cleanly.
-        /// </summary>
         static string DedentCode(string code)
         {
             if (string.IsNullOrEmpty(code)) return code;
@@ -468,25 +475,17 @@ namespace ShaderAILab.Editor.Core
             return string.Join("\n", result);
         }
 
-        /// <summary>
-        /// Check if a block only contains variable/constant declarations (no function body).
-        /// Such blocks are redundant because the CBUFFER is auto-generated from properties.
-        /// </summary>
         static bool IsDeclarationOnlyBlock(string code)
         {
             if (string.IsNullOrEmpty(code)) return true;
-
-            // If the code contains a brace-delimited body, it has a function
             if (code.Contains("{")) return false;
 
-            // Check if all non-empty, non-comment lines look like declarations
             foreach (string raw in code.Split('\n'))
             {
                 string line = raw.Trim().TrimEnd('\r');
                 if (string.IsNullOrEmpty(line)) continue;
                 if (line.StartsWith("//")) continue;
 
-                // Typical declaration: "half _Foo;" or "static const float PI = 3.14;"
                 bool looksLikeDecl = line.EndsWith(";") && !line.Contains("(");
                 if (!looksLikeDecl) return false;
             }
@@ -494,40 +493,11 @@ namespace ShaderAILab.Editor.Core
             return true;
         }
 
-        static string ExtractFunctionName(string code)
-        {
-            if (string.IsNullOrEmpty(code)) return null;
-
-            // Match return-type + function-name pattern
-            var match = System.Text.RegularExpressions.Regex.Match(code,
-                @"\b(void|half4|half3|half2|half|float4|float3|float2|float|int)\s+(\w+)\s*\(");
-            if (match.Success)
-                return match.Groups[2].Value;
-
-            // Fallback: first identifier before parentheses
-            match = System.Text.RegularExpressions.Regex.Match(code, @"(\w+)\s*\(");
-            if (!match.Success) return null;
-
-            string candidate = match.Groups[1].Value;
-            string[] typeKeywords = { "void", "float", "float2", "float3", "float4",
-                "half", "half2", "half3", "half4", "int", "uint",
-                "CBUFFER_START", "CBUFFER_END", "TEXTURE2D", "SAMPLER", "if", "for", "while" };
-            foreach (string kw in typeKeywords)
-            {
-                if (candidate == kw) return null;
-            }
-            return candidate;
-        }
-
-        /// <summary>
-        /// Extract the full function signature to determine how to call it.
-        /// Returns (returnType, funcName, parameterList) or null if not a function.
-        /// </summary>
         static (string returnType, string name, string parameters)? ExtractFunctionSignature(string code)
         {
             if (string.IsNullOrEmpty(code)) return null;
 
-            var match = System.Text.RegularExpressions.Regex.Match(code,
+            var match = Regex.Match(code,
                 @"\b(void|half4|half3|half2|half|float4|float3|float2|float|int)\s+(\w+)\s*\(([^)]*)\)");
             if (!match.Success) return null;
 
@@ -557,6 +527,13 @@ namespace ShaderAILab.Editor.Core
             return "";
         }
 
+        static string TextureAttrs(ShaderProperty p)
+        {
+            if (p.IsTexture && !string.IsNullOrEmpty(p.DefaultTexture))
+                return $" defaultTex=\"{p.DefaultTexture}\"";
+            return "";
+        }
+
         static string GeneratePropertyDeclaration(ShaderProperty p)
         {
             switch (p.PropertyType)
@@ -570,9 +547,20 @@ namespace ShaderAILab.Editor.Core
                 case ShaderPropertyType.Vector:
                     return $"{p.Name}(\"{p.DisplayName}\", Vector) = {p.DefaultValue}";
                 case ShaderPropertyType.Texture2D:
-                    return $"{p.Name}(\"{p.DisplayName}\", 2D) = \"white\" {{}}";
+                {
+                    string tex = string.IsNullOrEmpty(p.DefaultTexture) ? "white" : p.DefaultTexture;
+                    return $"{p.Name}(\"{p.DisplayName}\", 2D) = \"{tex}\" {{}}";
+                }
+                case ShaderPropertyType.Texture3D:
+                {
+                    string tex = string.IsNullOrEmpty(p.DefaultTexture) ? "white" : p.DefaultTexture;
+                    return $"{p.Name}(\"{p.DisplayName}\", 3D) = \"{tex}\" {{}}";
+                }
                 case ShaderPropertyType.Cubemap:
-                    return $"{p.Name}(\"{p.DisplayName}\", Cube) = \"\" {{}}";
+                {
+                    string tex = string.IsNullOrEmpty(p.DefaultTexture) ? "" : p.DefaultTexture;
+                    return $"{p.Name}(\"{p.DisplayName}\", Cube) = \"{tex}\" {{}}";
+                }
                 case ShaderPropertyType.Int:
                     return $"{p.Name}(\"{p.DisplayName}\", Int) = {p.DefaultValue}";
                 default:

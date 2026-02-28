@@ -11,6 +11,7 @@ Shader "AILab/Template" {
         Cull Back
         ZWrite On
 
+        // [AILab_Pass: name="ForwardUnlit" lightmode="UniversalForward"]
         Pass {
             Name "ForwardUnlit"
             Tags { "LightMode"="UniversalForward" }

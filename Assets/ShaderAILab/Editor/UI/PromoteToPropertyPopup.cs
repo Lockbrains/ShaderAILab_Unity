@@ -18,6 +18,8 @@ namespace ShaderAILab.Editor.UI
         readonly TextField _minField;
         readonly TextField _maxField;
         readonly VisualElement _rangeRow;
+        readonly DropdownField _defaultTexDropdown;
+        readonly VisualElement _defaultTexRow;
 
         public event Action<ShaderProperty> OnConfirm;
         public event Action OnCancel;
@@ -51,19 +53,40 @@ namespace ShaderAILab.Editor.UI
             typeRow.Add(typeLabel);
 
             _typeDropdown = new DropdownField(
-                new System.Collections.Generic.List<string> { "Float", "Range", "Color", "Vector", "Int" },
+                new System.Collections.Generic.List<string> { "Float", "Range", "Color", "Vector", "Int", "Texture2D", "Texture3D", "Cubemap" },
                 0
             );
             _typeDropdown.AddToClassList("promote-popup__field");
             _typeDropdown.RegisterValueChangedCallback(evt =>
             {
-                _rangeRow.style.display = evt.newValue == "Range" ? DisplayStyle.Flex : DisplayStyle.None;
+                bool isRange = evt.newValue == "Range";
+                bool isTexture = evt.newValue == "Texture2D" || evt.newValue == "Texture3D" || evt.newValue == "Cubemap";
+                _rangeRow.style.display = isRange ? DisplayStyle.Flex : DisplayStyle.None;
+                _defaultField.parent.style.display = isTexture ? DisplayStyle.None : DisplayStyle.Flex;
+                _defaultTexRow.style.display = isTexture ? DisplayStyle.Flex : DisplayStyle.None;
             });
             typeRow.Add(_typeDropdown);
             Add(typeRow);
 
-            // Default value
+            // Default value (for numeric/color/vector types)
             _defaultField = AddRow("Default", "0");
+
+            // Default texture dropdown (for texture types)
+            _defaultTexRow = new VisualElement();
+            _defaultTexRow.AddToClassList("promote-popup__row");
+            _defaultTexRow.style.display = DisplayStyle.None;
+
+            var texLabel = new Label("Default Tex");
+            texLabel.AddToClassList("promote-popup__label");
+            _defaultTexRow.Add(texLabel);
+
+            _defaultTexDropdown = new DropdownField(
+                new System.Collections.Generic.List<string> { "white", "black", "gray", "bump", "red" },
+                0
+            );
+            _defaultTexDropdown.AddToClassList("promote-popup__field");
+            _defaultTexRow.Add(_defaultTexDropdown);
+            Add(_defaultTexRow);
 
             // Range row (min/max)
             _rangeRow = new VisualElement();
@@ -158,6 +181,21 @@ namespace ShaderAILab.Editor.UI
                         prop.DefaultValue = "(0,0,0,0)";
                     break;
                 case "Int": prop.PropertyType = ShaderPropertyType.Int; break;
+                case "Texture2D":
+                    prop.PropertyType = ShaderPropertyType.Texture2D;
+                    prop.DefaultTexture = _defaultTexDropdown.value;
+                    prop.DefaultValue = "";
+                    break;
+                case "Texture3D":
+                    prop.PropertyType = ShaderPropertyType.Texture3D;
+                    prop.DefaultTexture = _defaultTexDropdown.value;
+                    prop.DefaultValue = "";
+                    break;
+                case "Cubemap":
+                    prop.PropertyType = ShaderPropertyType.Cubemap;
+                    prop.DefaultTexture = _defaultTexDropdown.value;
+                    prop.DefaultValue = "";
+                    break;
             }
 
             if (string.IsNullOrEmpty(prop.Name))

@@ -17,6 +17,13 @@
             <ui:Button name="tabDataFlow" text="Data Flow" class="tab-btn" />
         </ui:VisualElement>
 
+        <!-- Pass Bar -->
+        <ui:VisualElement name="passBar" class="pass-bar">
+            <ui:Label text="Pass:" class="pass-bar__label" />
+            <ui:VisualElement name="passTabContainer" class="pass-tab-container" />
+            <ui:Button name="btnAddPass" text="+" class="pass-bar__add-btn" />
+        </ui:VisualElement>
+
         <!-- Main content area: 3-column layout -->
         <ui:VisualElement name="mainContent" class="main-content">
 

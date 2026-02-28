@@ -71,6 +71,91 @@
     -unity-font-style: bold;
 }
 
+/* ---- Pass Bar ---- */
+.pass-bar {
+    flex-direction: row;
+    align-items: center;
+    height: 30px;
+    padding: 0 8px;
+    background-color: #222222;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+    flex-shrink: 0;
+}
+
+.pass-bar__label {
+    font-size: 11px;
+    color: #808080;
+    -unity-font-style: bold;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.pass-tab-container {
+    flex-direction: row;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.pass-tab {
+    height: 24px;
+    padding: 0 12px;
+    margin-right: 2px;
+    font-size: 11px;
+    border-radius: 3px 3px 0 0;
+    background-color: #2d2d2d;
+    color: #999999;
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-bottom-color: rgba(0,0,0,0);
+    flex-shrink: 0;
+}
+
+.pass-tab:hover {
+    background-color: #383838;
+    color: #cccccc;
+}
+
+.pass-tab--active {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    border-bottom-color: #569cd6;
+    -unity-font-style: bold;
+}
+
+.pass-tab--usepass {
+    color: #666666;
+    -unity-font-style: italic;
+    border-bottom-color: rgba(0,0,0,0);
+}
+
+.pass-tab--usepass.pass-tab--active {
+    color: #999999;
+    border-bottom-color: #666666;
+}
+
+.pass-tab--disabled {
+    opacity: 0.4;
+}
+
+.pass-bar__add-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+    -unity-font-style: bold;
+    background-color: #2a5a2a;
+    color: #b0e0b0;
+    border-width: 0;
+    border-radius: 3px;
+    padding: 0;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+
+.pass-bar__add-btn:hover {
+    background-color: #3a7a3a;
+}
+
 /* ---- Data Flow Content ---- */
 .data-flow-content {
     flex-grow: 1;
@@ -121,6 +206,41 @@
 
 .add-block-btn:hover {
     background-color: #3a7a3a;
+}
+
+/* ---- Block Filter Bar ---- */
+.block-filter-bar {
+    flex-direction: row;
+    flex-shrink: 0;
+    padding: 4px 6px;
+    background-color: #252525;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+}
+
+.block-filter-btn {
+    height: 22px;
+    padding: 0 10px;
+    margin-right: 3px;
+    font-size: 10px;
+    border-radius: 11px;
+    background-color: #3c3c3c;
+    color: #999999;
+    border-width: 0;
+}
+
+.block-filter-btn:hover {
+    background-color: #505050;
+    color: #cccccc;
+}
+
+.block-filter-btn--active {
+    background-color: #0e639c;
+    color: #ffffff;
+}
+
+.block-filter-btn--active:hover {
+    background-color: #1177bb;
 }
 
 /* Block items */
@@ -195,10 +315,10 @@
 
 /* Line numbers gutter */
 .code-line-numbers {
-    width: 44px;
-    min-width: 44px;
+    width: 48px;
+    min-width: 48px;
     padding: 8px 6px 8px 0;
-    font-size: 12px;
+    font-size: 13px;
     -unity-font-style: normal;
     color: #606060;
     background-color: #1a1a1a;
@@ -217,7 +337,8 @@
 }
 
 /* Highlighted text overlay -- paints colored text underneath the editor.
-   position:absolute overlays the same area as the editor area. */
+   position:absolute overlays the same area as the editor area.
+   Padding MUST match .code-editor-input .unity-text-field__input for alignment. */
 .code-highlight-layer {
     position: absolute;
     top: 0;
@@ -225,7 +346,8 @@
     right: 0;
     bottom: 0;
     padding: 8px;
-    font-size: 12px;
+    margin: 0;
+    font-size: 13px;
     -unity-font-style: normal;
     color: #d4d4d4;
     background-color: rgba(0,0,0,0);
@@ -237,10 +359,11 @@
    so the highlight label shows through. Only the caret is visible. */
 .code-editor-input {
     flex-grow: 1;
-    font-size: 12px;
+    font-size: 13px;
     background-color: rgba(0,0,0,0);
     border-width: 0;
     padding: 0;
+    margin: 0;
     white-space: nowrap;
     color: rgba(0,0,0,0);
 }
@@ -248,6 +371,13 @@
 .code-editor-input > .unity-base-field__input {
     background-color: rgba(0,0,0,0);
     border-width: 0;
+    padding: 0;
+    margin: 0;
+}
+
+/* Hide the built-in label element inside TextField to prevent offset */
+.code-editor-input > .unity-base-field__label {
+    display: none;
 }
 
 .code-editor-input .unity-text-field__input {
@@ -258,23 +388,27 @@
     -unity-font-style: normal;
     white-space: nowrap;
     padding: 8px;
+    margin: 0;
     --unity-cursor-color: #aeafad;
 }
 
 .code-editor-input .unity-text-element {
     background-color: rgba(0,0,0,0);
     color: rgba(0,0,0,0);
+    padding: 0;
+    margin: 0;
 }
 
 /* Legacy class kept for UXML compatibility -- the TextField starts with this
    class from UXML; we override it so it doesn't set an opaque background. */
 .code-editor {
     flex-grow: 1;
-    font-size: 12px;
+    font-size: 13px;
     color: rgba(0,0,0,0);
     background-color: rgba(0,0,0,0);
     border-width: 0;
     padding: 0;
+    margin: 0;
     white-space: nowrap;
 }
 
@@ -282,6 +416,8 @@
     background-color: rgba(0,0,0,0);
     border-width: 0;
     color: rgba(0,0,0,0);
+    padding: 8px;
+    margin: 0;
     --unity-cursor-color: #aeafad;
 }
 
@@ -513,8 +649,8 @@
     border-width: 2px;
     border-radius: 8px;
     border-color: #7c4dff;
-    padding: 2px;
-    background-color: rgba(0,0,0,0);
+    padding: 1px;
+    background-color: #1a1a2e;
 }
 
 .inline-llm-inner {
@@ -525,6 +661,7 @@
 
 .inline-llm-popup__input {
     flex-grow: 1;
+    flex-shrink: 1;
     font-size: 12px;
     min-height: 28px;
     background-color: #252540;
@@ -533,6 +670,7 @@
     border-color: #3a3a5c;
     border-radius: 4px;
     padding: 4px 8px;
+    overflow: hidden;
 }
 
 .inline-llm-popup__input .unity-text-field__input {
@@ -556,6 +694,8 @@
 .inline-llm-popup__btn {
     height: 28px;
     width: 32px;
+    min-width: 32px;
+    flex-shrink: 0;
     margin-left: 6px;
     padding: 0;
     font-size: 14px;

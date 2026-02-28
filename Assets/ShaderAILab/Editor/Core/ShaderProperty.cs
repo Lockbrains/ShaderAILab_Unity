@@ -26,6 +26,12 @@ namespace ShaderAILab.Editor.Core
         public string Role;
         public string RawDeclaration;
 
+        /// <summary>
+        /// For texture properties: the built-in default ("white", "black", "bump", "gray", "red").
+        /// Used in the Properties block declaration, e.g. _MainTex("Tex", 2D) = "white" {}
+        /// </summary>
+        public string DefaultTexture;
+
         public ShaderProperty()
         {
             Name = string.Empty;
@@ -33,6 +39,7 @@ namespace ShaderAILab.Editor.Core
             DefaultValue = string.Empty;
             Role = string.Empty;
             RawDeclaration = string.Empty;
+            DefaultTexture = string.Empty;
             MinValue = 0f;
             MaxValue = 1f;
         }
@@ -41,5 +48,10 @@ namespace ShaderAILab.Editor.Core
             PropertyType == ShaderPropertyType.Float ||
             PropertyType == ShaderPropertyType.Range ||
             PropertyType == ShaderPropertyType.Int;
+
+        public bool IsTexture =>
+            PropertyType == ShaderPropertyType.Texture2D ||
+            PropertyType == ShaderPropertyType.Texture3D ||
+            PropertyType == ShaderPropertyType.Cubemap;
     }
 }

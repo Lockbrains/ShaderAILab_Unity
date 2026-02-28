@@ -3,6 +3,7 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 using ShaderAILab.Editor.Core;
+using Object = UnityEngine.Object;
 
 namespace ShaderAILab.Editor.UI
 {
@@ -49,6 +50,15 @@ namespace ShaderAILab.Editor.UI
                     break;
                 case ShaderPropertyType.Vector:
                     AddVectorField(item, prop);
+                    break;
+                case ShaderPropertyType.Texture2D:
+                    AddTextureField(item, prop, typeof(Texture2D));
+                    break;
+                case ShaderPropertyType.Texture3D:
+                    AddTextureField(item, prop, typeof(Texture3D));
+                    break;
+                case ShaderPropertyType.Cubemap:
+                    AddTextureField(item, prop, typeof(Cubemap));
                     break;
                 default:
                     item.Add(new Label($"({prop.PropertyType})"));
@@ -101,6 +111,20 @@ namespace ShaderAILab.Editor.UI
             vectorField.RegisterValueChangedCallback(evt =>
                 OnParameterChanged?.Invoke(prop.Name, evt.newValue));
             parent.Add(vectorField);
+        }
+
+        void AddTextureField(VisualElement parent, ShaderProperty prop, System.Type textureType)
+        {
+            var label = new Label(prop.DisplayName);
+            label.AddToClassList("param-item__label");
+            parent.Add(label);
+
+            var objField = new ObjectField();
+            objField.objectType = textureType;
+            objField.allowSceneObjects = false;
+            objField.RegisterValueChangedCallback(evt =>
+                OnParameterChanged?.Invoke(prop.Name, evt.newValue));
+            parent.Add(objField);
         }
 
         static bool TryParseColor(string str, out Color color)

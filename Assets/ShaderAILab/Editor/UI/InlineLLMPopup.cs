@@ -25,7 +25,8 @@ namespace ShaderAILab.Editor.UI
 
         public InlineLLMPopup()
         {
-            // Outer gradient border container
+            AddToClassList("inline-llm-popup");
+
             _gradientBorder = new VisualElement();
             _gradientBorder.AddToClassList("inline-llm-gradient");
             Add(_gradientBorder);
