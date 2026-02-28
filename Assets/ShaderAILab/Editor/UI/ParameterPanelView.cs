@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -7,28 +9,104 @@ using Object = UnityEngine.Object;
 
 namespace ShaderAILab.Editor.UI
 {
-    /// <summary>
-    /// Builds the right-panel parameter UI with sliders for numeric properties
-    /// and color fields for color properties.
-    /// </summary>
     public class ParameterPanelView
     {
         readonly VisualElement _container;
+        readonly VisualElement _toggleRow;
+        readonly Toggle _showAllToggle;
+        readonly VisualElement _itemsContainer;
+
+        ShaderDocument _currentDoc;
+        ShaderBlock _currentBlock;
+        bool _showAll;
 
         public event Action<string, object> OnParameterChanged;
 
         public ParameterPanelView(VisualElement container)
         {
             _container = container;
+
+            _toggleRow = new VisualElement();
+            _toggleRow.AddToClassList("param-toggle-row");
+
+            var label = new Label("Show All Parameters");
+            label.AddToClassList("param-toggle-label");
+            _toggleRow.Add(label);
+
+            _showAllToggle = new Toggle { value = false };
+            _showAllToggle.RegisterValueChangedCallback(evt =>
+            {
+                _showAll = evt.newValue;
+                RebuildItems();
+            });
+            _toggleRow.Add(_showAllToggle);
+
+            _itemsContainer = new VisualElement();
         }
 
+        /// <summary>
+        /// Rebuild showing only parameters referenced by the given block (with Show All toggle).
+        /// </summary>
+        public void RebuildForBlock(ShaderDocument doc, ShaderBlock block)
+        {
+            _currentDoc = doc;
+            _currentBlock = block;
+            RebuildItems();
+        }
+
+        /// <summary>
+        /// Rebuild showing all parameters (legacy path, used when no block context).
+        /// </summary>
         public void Rebuild(ShaderDocument doc)
         {
-            _container.Clear();
-            if (doc == null) return;
+            _currentDoc = doc;
+            _currentBlock = null;
+            RebuildItems();
+        }
 
-            foreach (var prop in doc.Properties)
-                _container.Add(CreateParameterItem(prop));
+        void RebuildItems()
+        {
+            _container.Clear();
+            if (_currentDoc == null) return;
+
+            List<ShaderProperty> propsToShow;
+            bool hasBlockContext = _currentBlock != null && _currentBlock.ReferencedParams.Count > 0;
+
+            if (hasBlockContext)
+            {
+                _container.Add(_toggleRow);
+
+                if (_showAll)
+                {
+                    propsToShow = _currentDoc.Properties;
+                }
+                else
+                {
+                    propsToShow = _currentDoc.Properties
+                        .Where(p => _currentBlock.ReferencedParams.Contains(p.Name))
+                        .ToList();
+                }
+            }
+            else
+            {
+                propsToShow = _currentDoc.Properties;
+            }
+
+            _container.Add(_itemsContainer);
+            _itemsContainer.Clear();
+
+            if (propsToShow.Count == 0)
+            {
+                var emptyLabel = new Label(hasBlockContext && !_showAll
+                    ? "This block has no referenced parameters."
+                    : "No parameters defined.");
+                emptyLabel.AddToClassList("param-empty-label");
+                _itemsContainer.Add(emptyLabel);
+                return;
+            }
+
+            foreach (var prop in propsToShow)
+                _itemsContainer.Add(CreateParameterItem(prop));
         }
 
         VisualElement CreateParameterItem(ShaderProperty prop)
@@ -76,7 +154,6 @@ namespace ShaderAILab.Editor.UI
             float min = prop.PropertyType == ShaderPropertyType.Range ? prop.MinValue : 0f;
             float max = prop.PropertyType == ShaderPropertyType.Range ? prop.MaxValue : 1f;
 
-            // Houdini-style draggable field as the primary control
             var draggable = new DraggableFloatField(prop.DisplayName, defaultVal, min, max);
             draggable.OnValueChanged += val => OnParameterChanged?.Invoke(prop.Name, val);
             parent.Add(draggable);

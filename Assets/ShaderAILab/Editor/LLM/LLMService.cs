@@ -44,7 +44,8 @@ namespace ShaderAILab.Editor.LLM
         /// Generate shader code from a natural language prompt.
         /// Constructs appropriate system/user prompts based on target context.
         /// </summary>
-        public async Task<string> GenerateShaderCodeAsync(string userPrompt, ShaderDocument doc, string targetContext)
+        public async Task<string> GenerateShaderCodeAsync(string userPrompt, ShaderDocument doc, string targetContext,
+            System.Collections.Generic.List<Core.ShaderCompileChecker.CompileError> compileErrors = null)
         {
             var settings = LLMSettings.GetOrCreate();
             var provider = ActiveProvider;
@@ -56,8 +57,8 @@ namespace ShaderAILab.Editor.LLM
                 throw new InvalidOperationException(err);
             }
 
-            string systemPrompt = PromptTemplates.BuildSystemPrompt(doc, targetContext);
-            string fullUserPrompt = PromptTemplates.BuildUserPrompt(userPrompt, doc, targetContext);
+            string systemPrompt = PromptTemplates.BuildSystemPrompt(doc, targetContext, compileErrors);
+            string fullUserPrompt = PromptTemplates.BuildUserPrompt(userPrompt, doc, targetContext, compileErrors);
 
             var request = new LLMRequest
             {

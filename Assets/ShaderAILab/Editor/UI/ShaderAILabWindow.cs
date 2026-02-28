@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -9,7 +10,7 @@ namespace ShaderAILab.Editor.UI
 {
     public class ShaderAILabWindow : EditorWindow
     {
-        enum EditorTab { NLBlocks, DataFlow }
+        enum EditorTab { NLBlocks, DataFlow, Plan, History }
 
         ShaderDocument _document;
         ShaderVersionHistory _versionHistory;
@@ -31,8 +32,12 @@ namespace ShaderAILab.Editor.UI
         // Tab bar
         Button _tabNLBlocks;
         Button _tabDataFlow;
+        Button _tabPlan;
+        Button _tabHistory;
         VisualElement _mainContent;
         VisualElement _dataFlowContent;
+        VisualElement _planContent;
+        VisualElement _historyContent;
 
         // Pass bar
         VisualElement _passTabContainer;
@@ -44,6 +49,8 @@ namespace ShaderAILab.Editor.UI
         ParameterPanelView _parameterPanelView;
         ShaderPreviewView _previewView;
         DataFlowGraphView _dataFlowGraphView;
+        HistoryView _historyView;
+        PlanView _planView;
         AutoCompletePopup _autoComplete;
         InlineLLMPopup _inlineLLMPopup;
 
@@ -101,8 +108,31 @@ namespace ShaderAILab.Editor.UI
             // Tab bar
             _tabNLBlocks = rootVisualElement.Q<Button>("tabNLBlocks");
             _tabDataFlow = rootVisualElement.Q<Button>("tabDataFlow");
+            _tabPlan = rootVisualElement.Q<Button>("tabPlan");
+            _tabHistory = rootVisualElement.Q<Button>("tabHistory");
             _mainContent = rootVisualElement.Q<VisualElement>("mainContent");
             _dataFlowContent = rootVisualElement.Q<VisualElement>("dataFlowContent");
+            _planContent = rootVisualElement.Q<VisualElement>("planContent");
+            _historyContent = rootVisualElement.Q<VisualElement>("historyContent");
+
+            // History view
+            if (_historyContent != null)
+            {
+                _historyView = new HistoryView(_historyContent);
+                _historyView.OnResendRequested += OnHistoryResend;
+            }
+
+            // Plan view
+            if (_planContent != null)
+            {
+                _planView = new PlanView(_planContent);
+                _planView.OnCreatePlanRequested += OnCreatePlanRequested;
+                _planView.OnPhaseConfirmed += OnPlanPhaseConfirmed;
+                _planView.OnPhaseSkipped += OnPlanPhaseSkipped;
+                _planView.OnPhaseFeedbackSent += OnPlanPhaseFeedback;
+                _planView.OnExecutePlanRequested += OnExecutePlanRequested;
+                _planView.OnResetPlanRequested += OnResetPlanRequested;
+            }
 
             // Pass bar
             _passTabContainer = rootVisualElement.Q<VisualElement>("passTabContainer");
@@ -144,6 +174,8 @@ namespace ShaderAILab.Editor.UI
         {
             _tabNLBlocks?.RegisterCallback<ClickEvent>(_ => SwitchTab(EditorTab.NLBlocks));
             _tabDataFlow?.RegisterCallback<ClickEvent>(_ => SwitchTab(EditorTab.DataFlow));
+            _tabPlan?.RegisterCallback<ClickEvent>(_ => SwitchTab(EditorTab.Plan));
+            _tabHistory?.RegisterCallback<ClickEvent>(_ => SwitchTab(EditorTab.History));
             rootVisualElement.Q<Button>("btnOpen")?.RegisterCallback<ClickEvent>(_ => OnOpenShader());
             rootVisualElement.Q<Button>("btnSave")?.RegisterCallback<ClickEvent>(_ => OnSave());
             rootVisualElement.Q<Button>("btnNewFromTemplate")?.RegisterCallback<ClickEvent>(_ => OnNewFromTemplate());
@@ -187,21 +219,33 @@ namespace ShaderAILab.Editor.UI
             if (_activeTab == tab) return;
             _activeTab = tab;
 
-            bool showNL = tab == EditorTab.NLBlocks;
-            _mainContent.style.display = showNL ? DisplayStyle.Flex : DisplayStyle.None;
-            _dataFlowContent.style.display = showNL ? DisplayStyle.None : DisplayStyle.Flex;
+            _mainContent.style.display = tab == EditorTab.NLBlocks ? DisplayStyle.Flex : DisplayStyle.None;
+            _dataFlowContent.style.display = tab == EditorTab.DataFlow ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_planContent != null)
+                _planContent.style.display = tab == EditorTab.Plan ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_historyContent != null)
+                _historyContent.style.display = tab == EditorTab.History ? DisplayStyle.Flex : DisplayStyle.None;
 
-            _tabNLBlocks.EnableInClassList("tab-btn--active", showNL);
-            _tabDataFlow.EnableInClassList("tab-btn--active", !showNL);
+            _tabNLBlocks.EnableInClassList("tab-btn--active", tab == EditorTab.NLBlocks);
+            _tabDataFlow.EnableInClassList("tab-btn--active", tab == EditorTab.DataFlow);
+            _tabPlan?.EnableInClassList("tab-btn--active", tab == EditorTab.Plan);
+            _tabHistory?.EnableInClassList("tab-btn--active", tab == EditorTab.History);
 
-            if (showNL)
+            switch (tab)
             {
-                if (!string.IsNullOrEmpty(_selectedBlockId) && _document != null)
-                    OnBlockSelected(_selectedBlockId);
-            }
-            else
-            {
-                EnsureDataFlowView();
+                case EditorTab.NLBlocks:
+                    if (!string.IsNullOrEmpty(_selectedBlockId) && _document != null)
+                        OnBlockSelected(_selectedBlockId);
+                    break;
+                case EditorTab.DataFlow:
+                    EnsureDataFlowView();
+                    break;
+                case EditorTab.Plan:
+                    _planView?.Refresh();
+                    break;
+                case EditorTab.History:
+                    _historyView?.Refresh();
+                    break;
             }
         }
 
@@ -215,7 +259,7 @@ namespace ShaderAILab.Editor.UI
             }
 
             if (_document?.ActivePass != null)
-                _dataFlowGraphView?.Rebuild(_document.ActivePass.DataFlow);
+                _dataFlowGraphView?.Rebuild(_document.ActivePass.DataFlow, _document.ActivePass, _document.GlobalSettings);
         }
 
         void OnDataFlowChanged()
@@ -278,7 +322,7 @@ namespace ShaderAILab.Editor.UI
             if (pass == null) return;
 
             _blockListView.Rebuild(pass);
-            _dataFlowGraphView?.Rebuild(pass.DataFlow);
+            _dataFlowGraphView?.Rebuild(pass.DataFlow, pass, _document?.GlobalSettings);
             RefreshPromptTargets();
 
             if (pass.IsUsePass)
@@ -447,9 +491,23 @@ namespace ShaderAILab.Editor.UI
             _document = ShaderParser.ParseFile(path);
             _versionHistory = new ShaderVersionHistory(path);
             ShaderFileWatcher.Instance.Watch(path);
+
+            var savedPlan = ShaderPlan.LoadFromFile(path);
+            if (savedPlan != null)
+            {
+                _document.Plan = savedPlan;
+                savedPlan.OnPlanChanged += () => SavePlanToDisk();
+            }
+
             RefreshAll();
             CheckCompileErrors();
             _promptStatus.text = $"Loaded: {path}";
+        }
+
+        void SavePlanToDisk()
+        {
+            if (_document?.Plan == null || string.IsNullOrEmpty(_document.FilePath)) return;
+            _document.Plan.SaveToFile(_document.FilePath);
         }
 
         void RefreshAll()
@@ -468,9 +526,11 @@ namespace ShaderAILab.Editor.UI
             _previewView?.SetShader(_document);
 
             if (pass != null)
-                _dataFlowGraphView?.Rebuild(pass.DataFlow);
+                _dataFlowGraphView?.Rebuild(pass.DataFlow, pass, _document.GlobalSettings);
 
             _autoComplete?.SetCompletionSource(_document);
+            _historyView?.Bind(_document.History);
+            _planView?.Bind(_document);
             RefreshPromptTargets();
 
             if (pass != null && !pass.IsUsePass && pass.Blocks.Count > 0)
@@ -512,6 +572,7 @@ namespace ShaderAILab.Editor.UI
             else
                 _codeEditorField.SetValueWithoutNotify(block.Code);
             _blockListView.SetSelected(blockId);
+            _parameterPanelView.RebuildForBlock(_document, block);
         }
 
         void OnBlockDeleteRequested(string blockId)
@@ -603,7 +664,46 @@ namespace ShaderAILab.Editor.UI
         void OnOpenInVSCode()
         {
             if (_document == null || string.IsNullOrEmpty(_document.FilePath)) return;
-            System.Diagnostics.Process.Start("code", $"\"{_document.FilePath}\"");
+
+            string filePath = _document.FilePath;
+
+#if UNITY_EDITOR_OSX
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"-l -c 'code \"{filePath}\"'",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            try
+            {
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (System.Exception e)
+            {
+                // Fallback: open with the macOS 'open' command
+                try { System.Diagnostics.Process.Start("open", $"-a \"Visual Studio Code\" \"{filePath}\""); }
+                catch { Debug.LogError($"[ShaderAILab] Failed to open VSCode: {e.Message}"); }
+            }
+#elif UNITY_EDITOR_WIN
+            try
+            {
+                System.Diagnostics.Process.Start("code", $"\"{filePath}\"");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[ShaderAILab] Failed to open VSCode: {e.Message}");
+            }
+#else
+            try
+            {
+                System.Diagnostics.Process.Start("code", $"\"{filePath}\"");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[ShaderAILab] Failed to open VSCode: {e.Message}");
+            }
+#endif
         }
 
         void OnOpenSettings()
@@ -757,6 +857,8 @@ namespace ShaderAILab.Editor.UI
 
             _inlineLLMPopup?.SetStatus("Generating...");
 
+            var historyEntry = _document.History.RecordStart(request, "Inline Insert");
+
             try
             {
                 string blockCode = _codeEditorView.Code;
@@ -772,14 +874,17 @@ namespace ShaderAILab.Editor.UI
                 {
                     _codeEditorView.InsertAtCursor(code);
                     _inlineLLMPopup?.SetStatus("Inserted.");
+                    _document.History.RecordSuccess(historyEntry, response, "Inline code inserted");
                 }
                 else
                 {
                     _inlineLLMPopup?.SetStatus("No code generated.");
+                    _document.History.RecordSuccess(historyEntry, response, "No code generated");
                 }
             }
             catch (System.Exception ex)
             {
+                _document.History.RecordFailure(historyEntry, ex.Message);
                 _inlineLLMPopup?.SetStatus($"Error: {ex.Message}");
                 Debug.LogError($"[ShaderAILab] Inline LLM Error: {ex}");
             }
@@ -865,6 +970,22 @@ namespace ShaderAILab.Editor.UI
             return false;
         }
 
+        static bool IsBugFixRequest(string prompt)
+        {
+            if (string.IsNullOrEmpty(prompt)) return false;
+            string lower = prompt.ToLowerInvariant();
+            string[] fixKeywords = {
+                "fix", "bug", "error", "compile", "broken", "wrong", "issue", "problem",
+                "修复", "修", "bug", "错误", "编译", "报错", "问题", "不对", "不工作", "不正确",
+                "debug", "repair", "doesn't work", "not working", "failed", "syntax"
+            };
+            foreach (string kw in fixKeywords)
+            {
+                if (lower.Contains(kw)) return true;
+            }
+            return false;
+        }
+
         async void OnSendPrompt()
         {
             if (_document == null) return;
@@ -883,12 +1004,23 @@ namespace ShaderAILab.Editor.UI
             if (targetContext == "Global (auto-place)" && IsPassLevelRequest(prompt))
                 targetContext = "New Pass";
 
-            _promptStatus.text = "Generating...";
+            System.Collections.Generic.List<ShaderCompileChecker.CompileError> compileErrors = null;
+            if (IsBugFixRequest(prompt) || ShaderCompileChecker.HasErrors(_document))
+            {
+                compileErrors = ShaderCompileChecker.Check(_document);
+                if (compileErrors.Count == 0) compileErrors = null;
+            }
+
+            _promptStatus.text = compileErrors != null
+                ? $"Generating fix for {compileErrors.Count} compile error(s)..."
+                : "Generating...";
+
+            var historyEntry = _document.History.RecordStart(prompt, targetContext);
 
             try
             {
                 var llmService = LLM.LLMService.Instance;
-                string rawResult = await llmService.GenerateShaderCodeAsync(prompt, _document, targetContext);
+                string rawResult = await llmService.GenerateShaderCodeAsync(prompt, _document, targetContext, compileErrors);
 
                 if (!string.IsNullOrEmpty(rawResult))
                 {
@@ -904,15 +1036,17 @@ namespace ShaderAILab.Editor.UI
                     // Pass-level response: create a new ShaderPass
                     bool isPassResponse = targetContext == "New Pass" || parsed.PassInfo != null;
 
+                    string summary;
+
                     if (isPassResponse && parsed.PassInfo != null && parsed.Blocks.Count > 0)
                     {
                         CreatePassFromLLMResponse(parsed, prompt);
+                        summary = $"Created pass \"{parsed.PassInfo.Name}\" with {parsed.Blocks.Count} block(s)";
                     }
                     else if (targetContext.StartsWith("Block:") && !string.IsNullOrEmpty(_selectedBlockId))
                     {
                         var existingBlock = _document.FindBlockById(_selectedBlockId);
                         var blockSection = existingBlock?.Section ?? ShaderSectionType.Fragment;
-                        // Re-parse with correct section if needed
                         if (blockSection != sectionType)
                             parsed = LLM.PromptTemplates.ParseFullResponse(rawResult, blockSection);
 
@@ -925,10 +1059,13 @@ namespace ShaderAILab.Editor.UI
                             _codeEditorView.Code = code;
                         else
                             _codeEditorField.value = code;
+
+                        summary = $"Updated block \"{existingBlock?.Title}\"";
                     }
                     else
                     {
                         string lastBlockId = null;
+                        int blockCount = 0;
 
                         if (parsed.Blocks.Count > 0)
                         {
@@ -944,6 +1081,7 @@ namespace ShaderAILab.Editor.UI
                                     newBlock.ReferencedParams.Add(p);
                                 _document.AddBlock(newBlock);
                                 lastBlockId = newBlock.Id;
+                                blockCount++;
                             }
                         }
                         else
@@ -958,18 +1096,24 @@ namespace ShaderAILab.Editor.UI
                             newBlock.Code = code;
                             _document.AddBlock(newBlock);
                             lastBlockId = newBlock.Id;
+                            blockCount = 1;
                         }
 
                         RefreshActivePassViews();
                         _parameterPanelView.Rebuild(_document);
                         if (lastBlockId != null)
                             OnBlockSelected(lastBlockId);
+
+                        summary = $"Added {blockCount} block(s), {parsed.Properties?.Count ?? 0} property(ies)";
                     }
+
+                    _document.History.RecordSuccess(historyEntry, rawResult, summary);
                     _promptStatus.text = "Generation complete.";
                 }
             }
             catch (System.Exception ex)
             {
+                _document.History.RecordFailure(historyEntry, ex.Message);
                 _promptStatus.text = $"Error: {ex.Message}";
                 Debug.LogError($"[ShaderAILab] LLM Error: {ex}");
             }
@@ -991,13 +1135,20 @@ namespace ShaderAILab.Editor.UI
             bool hasCull = !string.IsNullOrEmpty(passInfo.CullOverride);
             bool hasBlend = !string.IsNullOrEmpty(passInfo.BlendOverride);
             bool hasZWrite = !string.IsNullOrEmpty(passInfo.ZWriteOverride);
-            if (hasCull || hasBlend || hasZWrite)
+            bool hasZTest = !string.IsNullOrEmpty(passInfo.ZTestOverride);
+            bool hasCMask = !string.IsNullOrEmpty(passInfo.ColorMaskOverride);
+            bool hasStencil = passInfo.StencilOverride != null;
+            if (hasCull || hasBlend || hasZWrite || hasZTest || hasCMask || hasStencil)
             {
-                newPass.RenderState = new PassRenderState(
+                var rs = new PassRenderState(
                     hasCull ? passInfo.CullOverride : null,
                     hasBlend ? passInfo.BlendOverride : null,
                     hasZWrite ? passInfo.ZWriteOverride : null
                 );
+                rs.ZTestMode = hasZTest ? passInfo.ZTestOverride : null;
+                rs.ColorMask = hasCMask ? passInfo.ColorMaskOverride : null;
+                rs.Stencil = hasStencil ? passInfo.StencilOverride : null;
+                newPass.RenderState = rs;
             }
 
             foreach (var pb in parsed.Blocks)
@@ -1025,6 +1176,8 @@ namespace ShaderAILab.Editor.UI
 
             _promptStatus.text = "Analyzing data flow requirements...";
 
+            var historyEntry = _document.History.RecordStart(prompt, "Data Flow");
+
             try
             {
                 var llmService = LLM.LLMService.Instance;
@@ -1037,7 +1190,7 @@ namespace ShaderAILab.Editor.UI
 
                 if (!string.IsNullOrEmpty(result))
                 {
-                    var (fields, annotations) = LLM.PromptTemplates.ParseDataFlowResponse(result);
+                    var (fields, annotations, renderState) = LLM.PromptTemplates.ParseDataFlowResponse(result);
 
                     int activated = 0;
                     foreach (string fieldName in fields)
@@ -1061,24 +1214,261 @@ namespace ShaderAILab.Editor.UI
                         }
                     }
 
+                    if (renderState != null)
+                    {
+                        var pass = _document.ActivePass;
+                        if (pass.RenderState == null) pass.RenderState = new PassRenderState();
+                        if (!string.IsNullOrEmpty(renderState.CullMode))   pass.RenderState.CullMode   = renderState.CullMode;
+                        if (!string.IsNullOrEmpty(renderState.BlendMode))  pass.RenderState.BlendMode  = renderState.BlendMode;
+                        if (!string.IsNullOrEmpty(renderState.ZWriteMode)) pass.RenderState.ZWriteMode = renderState.ZWriteMode;
+                        if (!string.IsNullOrEmpty(renderState.ZTestMode))  pass.RenderState.ZTestMode  = renderState.ZTestMode;
+                        if (!string.IsNullOrEmpty(renderState.ColorMask))  pass.RenderState.ColorMask  = renderState.ColorMask;
+                        if (renderState.Stencil != null)                   pass.RenderState.Stencil    = renderState.Stencil;
+                    }
+
                     _document.IsDirty = true;
 
                     if (_dataFlowGraphView != null)
-                        _dataFlowGraphView.Rebuild(activeDataFlow);
+                        _dataFlowGraphView.Rebuild(activeDataFlow, _document.ActivePass, _document.GlobalSettings);
+
+                    string statusMsg = $"Data Flow updated: {activated} field(s) activated";
+                    if (renderState != null) statusMsg += " + render state modified";
+
+                    _document.History.RecordSuccess(historyEntry, result, statusMsg);
 
                     SwitchTab(EditorTab.DataFlow);
-                    _promptStatus.text = $"Data Flow updated: {activated} field(s) activated.";
+                    _promptStatus.text = statusMsg + ".";
                 }
                 else
                 {
+                    _document.History.RecordSuccess(historyEntry, "", "No data flow changes suggested");
                     _promptStatus.text = "No data flow changes suggested.";
                 }
             }
             catch (System.Exception ex)
             {
+                _document.History.RecordFailure(historyEntry, ex.Message);
                 _promptStatus.text = $"Error: {ex.Message}";
                 Debug.LogError($"[ShaderAILab] DataFlow LLM Error: {ex}");
             }
+        }
+
+        void OnHistoryResend(string prompt)
+        {
+            if (_promptInput != null)
+            {
+                _promptInput.value = prompt;
+                SwitchTab(EditorTab.NLBlocks);
+            }
+        }
+
+        // ---- Plan interaction ----
+
+        async void OnCreatePlanRequested(string userRequest)
+        {
+            if (_document == null) return;
+
+            var plan = new ShaderPlan(userRequest);
+            plan.Status = PlanStatus.Decomposing;
+            plan.OnPlanChanged += () => SavePlanToDisk();
+            _document.Plan = plan;
+
+            _planView?.SetDecomposing();
+            _promptStatus.text = "Decomposing shader plan...";
+
+            try
+            {
+                var llmService = LLM.LLMService.Instance;
+                string systemPrompt = LLM.PromptTemplates.BuildPlanDecompositionSystemPrompt(_document);
+                string userPrompt = LLM.PromptTemplates.BuildPlanDecompositionUserPrompt(userRequest);
+                string response = await llmService.GenerateAsync(systemPrompt, userPrompt);
+
+                var phases = LLM.PromptTemplates.ParsePlanDecompositionResponse(response);
+
+                if (phases.Count == 0)
+                {
+                    plan.Status = PlanStatus.Failed;
+                    _promptStatus.text = "Failed to decompose plan. LLM returned no phases.";
+                    _planView?.Refresh();
+                    return;
+                }
+
+                plan.Phases = phases;
+                plan.Status = PlanStatus.Refining;
+                plan.NotifyChanged();
+
+                _promptStatus.text = $"Plan created with {phases.Count} phases. Review and confirm each phase.";
+                _planView?.Refresh();
+            }
+            catch (System.Exception ex)
+            {
+                plan.Status = PlanStatus.Failed;
+                _promptStatus.text = $"Plan error: {ex.Message}";
+                _planView?.Refresh();
+                Debug.LogError($"[ShaderAILab] Plan decomposition error: {ex}");
+            }
+        }
+
+        void OnPlanPhaseConfirmed(string phaseId)
+        {
+            if (_document?.Plan == null) return;
+            var phase = _document.Plan.FindPhaseById(phaseId);
+            if (phase == null) return;
+
+            phase.Status = PhaseStatus.Confirmed;
+            _document.Plan.NotifyChanged();
+
+            if (_document.Plan.AllPhasesHandled)
+                _document.Plan.Status = PlanStatus.Ready;
+
+            _planView?.Refresh();
+            _promptStatus.text = $"Phase \"{phase.Title}\" confirmed. {_document.Plan.ConfirmedCount}/{_document.Plan.Phases.Count} phases handled.";
+        }
+
+        void OnPlanPhaseSkipped(string phaseId)
+        {
+            if (_document?.Plan == null) return;
+            var phase = _document.Plan.FindPhaseById(phaseId);
+            if (phase == null) return;
+
+            phase.Status = PhaseStatus.Skipped;
+            _document.Plan.NotifyChanged();
+
+            if (_document.Plan.AllPhasesHandled)
+                _document.Plan.Status = PlanStatus.Ready;
+
+            _planView?.Refresh();
+            _promptStatus.text = $"Phase \"{phase.Title}\" skipped.";
+        }
+
+        async void OnPlanPhaseFeedback(string phaseId, string feedback)
+        {
+            if (_document?.Plan == null) return;
+            var plan = _document.Plan;
+            var phase = plan.FindPhaseById(phaseId);
+            if (phase == null) return;
+
+            phase.UserResponse = feedback;
+            phase.RefinementCount++;
+            _planView?.SetPhaseRefining(phaseId);
+            _promptStatus.text = $"Refining phase \"{phase.Title}\"...";
+
+            try
+            {
+                var llmService = LLM.LLMService.Instance;
+                string systemPrompt = LLM.PromptTemplates.BuildPhaseRefinementSystemPrompt(plan, phase);
+                string userPrompt = LLM.PromptTemplates.BuildPhaseRefinementUserPrompt(feedback);
+                string response = await llmService.GenerateAsync(systemPrompt, userPrompt);
+
+                var updatedPhase = LLM.PromptTemplates.ParsePhaseRefinementResponse(response);
+
+                if (updatedPhase != null)
+                {
+                    phase.LLMProposal = updatedPhase.LLMProposal ?? phase.LLMProposal;
+                    phase.LLMQuestion = updatedPhase.LLMQuestion;
+                    phase.Items = updatedPhase.Items ?? phase.Items;
+                    phase.Status = PhaseStatus.WaitingForUser;
+
+                    _planView?.UpdatePhaseCard(phaseId, phase);
+                    _promptStatus.text = $"Phase \"{phase.Title}\" refined (iteration {phase.RefinementCount}).";
+                }
+                else
+                {
+                    phase.Status = PhaseStatus.WaitingForUser;
+                    _planView?.UpdatePhaseCard(phaseId, phase);
+                    _promptStatus.text = $"Could not parse refinement for \"{phase.Title}\". Please try again.";
+                }
+
+                plan.NotifyChanged();
+            }
+            catch (System.Exception ex)
+            {
+                phase.Status = PhaseStatus.WaitingForUser;
+                _planView?.UpdatePhaseCard(phaseId, phase);
+                _promptStatus.text = $"Refinement error: {ex.Message}";
+                Debug.LogError($"[ShaderAILab] Phase refinement error: {ex}");
+            }
+        }
+
+        async void OnExecutePlanRequested()
+        {
+            if (_document?.Plan == null) return;
+            var plan = _document.Plan;
+
+            if (!plan.AllPhasesHandled)
+            {
+                _promptStatus.text = "All phases must be confirmed or skipped before executing.";
+                return;
+            }
+
+            plan.Status = PlanStatus.Executing;
+            _planView?.Refresh();
+
+            var executor = new PlanExecutor();
+            executor.OnPhaseExecuting += (phaseType, msg) =>
+            {
+                _promptStatus.text = msg;
+                _planView?.SetExecutionProgress(phaseType, msg);
+            };
+
+            executor.OnPhaseCompleted += (phaseType, success, msg) =>
+            {
+                _promptStatus.text = msg;
+            };
+
+            try
+            {
+                await executor.ExecuteAsync(_document, plan);
+
+                plan.Status = PlanStatus.Completed;
+                _planView?.Refresh();
+
+                if (_document != null && !string.IsNullOrEmpty(_document.FilePath))
+                {
+                    ShaderWriter.WriteToFile(_document);
+                    ShaderFileWatcher.Instance.AcknowledgeWrite();
+                    UnityEditor.AssetDatabase.Refresh();
+                }
+
+                RefreshAll();
+                CheckCompileErrors();
+
+                _activeTab = EditorTab.Plan;
+                SwitchTab(EditorTab.NLBlocks);
+
+                _promptStatus.text = "Plan execution completed! Switched to NL Blocks tab.";
+            }
+            catch (System.Exception ex)
+            {
+                plan.Status = PlanStatus.Failed;
+                _planView?.Refresh();
+                RefreshAll();
+
+                _activeTab = EditorTab.Plan;
+                SwitchTab(EditorTab.NLBlocks);
+
+                _promptStatus.text = $"Execution finished with errors: {ex.Message}";
+                Debug.LogError($"[ShaderAILab] Plan execution error: {ex}");
+            }
+        }
+
+        void OnResetPlanRequested()
+        {
+            if (_document == null) return;
+
+            if (_document.Plan != null && _document.Plan.Status != PlanStatus.Empty)
+            {
+                if (!EditorUtility.DisplayDialog("Reset Plan",
+                    "Are you sure you want to discard the current plan?", "Reset", "Cancel"))
+                    return;
+            }
+
+            if (!string.IsNullOrEmpty(_document.FilePath))
+                ShaderPlan.DeleteFile(_document.FilePath);
+
+            _document.Plan = null;
+            _planView?.Refresh();
+            _promptStatus.text = "Plan reset.";
         }
 
         // ---- LLM response helpers ----

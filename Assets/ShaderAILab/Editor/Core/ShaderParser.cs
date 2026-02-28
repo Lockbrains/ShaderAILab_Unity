@@ -79,6 +79,18 @@ namespace ShaderAILab.Editor.Core
         static readonly Regex ReZWrite =
             new Regex(@"^\s*ZWrite\s+(\w+)", RegexOptions.Compiled);
 
+        static readonly Regex ReZTest =
+            new Regex(@"^\s*ZTest\s+(\w+)", RegexOptions.Compiled);
+
+        static readonly Regex ReColorMask =
+            new Regex(@"^\s*ColorMask\s+(\S+)", RegexOptions.Compiled);
+
+        static readonly Regex ReStencilBlock =
+            new Regex(@"^\s*Stencil\s*\{", RegexOptions.Compiled);
+
+        static readonly Regex ReStencilKV =
+            new Regex(@"^\s*(Ref|Comp|Pass|Fail|ZFail|ReadMask|WriteMask)\s+(\S+)", RegexOptions.Compiled);
+
         // -------------------------------------------------------------------
 
         public static ShaderDocument ParseFile(string filePath)
@@ -226,6 +238,8 @@ namespace ShaderAILab.Editor.Core
             bool inHLSL = false;
             bool hasPerPassRenderState = false;
             string perPassCull = null, perPassBlend = null, perPassZWrite = null;
+            string perPassZTest = null, perPassColorMask = null;
+            StencilState perPassStencil = null;
 
             for (int i = range.StartLine; i <= range.EndLine; i++)
             {
@@ -250,6 +264,40 @@ namespace ShaderAILab.Editor.Core
 
                     var zwMatch = ReZWrite.Match(lines[i]);
                     if (zwMatch.Success) { perPassZWrite = zwMatch.Groups[1].Value; hasPerPassRenderState = true; }
+
+                    var ztMatch = ReZTest.Match(lines[i]);
+                    if (ztMatch.Success) { perPassZTest = ztMatch.Groups[1].Value; hasPerPassRenderState = true; }
+
+                    var cmMatch = ReColorMask.Match(lines[i]);
+                    if (cmMatch.Success) { perPassColorMask = cmMatch.Groups[1].Value; hasPerPassRenderState = true; }
+
+                    if (ReStencilBlock.IsMatch(lines[i]))
+                    {
+                        perPassStencil = new StencilState();
+                        hasPerPassRenderState = true;
+                        for (int j = i + 1; j <= range.EndLine; j++)
+                        {
+                            string stLine = lines[j].Trim();
+                            if (stLine.StartsWith("}")) { i = j; break; }
+
+                            var skv = ReStencilKV.Match(lines[j]);
+                            if (skv.Success)
+                            {
+                                string skey = skv.Groups[1].Value;
+                                string sval = skv.Groups[2].Value;
+                                switch (skey)
+                                {
+                                    case "Ref":       if (int.TryParse(sval, out int r)) perPassStencil.Ref = r; break;
+                                    case "Comp":      perPassStencil.Comp = sval; break;
+                                    case "Pass":      perPassStencil.Pass = sval; break;
+                                    case "Fail":      perPassStencil.Fail = sval; break;
+                                    case "ZFail":     perPassStencil.ZFail = sval; break;
+                                    case "ReadMask":  if (int.TryParse(sval, out int rm)) perPassStencil.ReadMask = rm; break;
+                                    case "WriteMask": if (int.TryParse(sval, out int wm)) perPassStencil.WriteMask = wm; break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (inHLSL)
@@ -276,7 +324,13 @@ namespace ShaderAILab.Editor.Core
                 pass.LightMode = pendingPassTagLightMode;
 
             if (hasPerPassRenderState)
-                pass.RenderState = new PassRenderState(perPassCull, perPassBlend, perPassZWrite);
+            {
+                var rs = new PassRenderState(perPassCull, perPassBlend, perPassZWrite);
+                rs.ZTestMode = perPassZTest;
+                rs.ColorMask = perPassColorMask;
+                rs.Stencil = perPassStencil;
+                pass.RenderState = rs;
+            }
 
             ParseBlocksIntoPass(lines, range.StartLine, range.EndLine, pass);
             ParseStructsIntoPass(lines, range.StartLine, range.EndLine, pass);

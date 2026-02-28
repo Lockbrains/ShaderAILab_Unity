@@ -27,6 +27,12 @@ namespace ShaderAILab.Editor.Core
         public DateTime LastModified;
         public bool IsDirty;
 
+        [System.NonSerialized]
+        public LLMHistory History = new LLMHistory();
+
+        [System.NonSerialized]
+        public ShaderPlan Plan;
+
         public ShaderDocument()
         {
             FilePath = string.Empty;

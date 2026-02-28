@@ -1,0 +1,266 @@
+{
+    "Id": "8de86dc3",
+    "UserRequest": "我想要生成一个不受光照影响、自带描边、扁平的莫比斯手绘风格的物品shader",
+    "Status": 4,
+    "Phases": [
+        {
+            "Id": "f2b845a7",
+            "Title": "Moebius Hand-Drawn Style Unlit Shader",
+            "Type": 0,
+            "LLMProposal": "莫比斯（Moebius）风格的核心视觉特征在于：清晰且带有轻微手绘抖动感的纯黑色线条、大面积的低饱和度平涂色彩，以及用于表现阴影的致密排线/网点。根据您的最新反馈，我们将核心视觉表现扩展为包含**屏幕空间网点排线（Screen-Space Hatching）**。由于Shader整体是不受环境光照影响（Unlit）的，整体策略调整如下：\n1. 基础颜色：纯Unlit渲染，直接输出贴图颜色以保证绝对扁平。\n2. 描边实现：采用经典的背面剔除法线外扩技术实现外轮廓描边，加入轻微噪声扰动打破完美直线，模拟墨水不规则感。\n3. 手绘排线：引入基于屏幕空间坐标的网点/排线纹理采样。通过屏幕坐标锁定排线图案，使得排线不会随镜头缩放而产生强烈的透视畸变，极大地增强了手绘插画的2D平面感。",
+            "LLMQuestion": "由于材质是无光照（Unlit）的，我们无法利用真实的物理光照来生成排线阴影。您希望如何控制这些“网点排线”出现在模型的哪些区域？是希望美术绘制一张Mask遮罩图来指定排线位置，还是在Shader里指定一个固定的“虚拟光源方向”来自动计算排线区域？",
+            "UserResponse": "先用屏幕空间的网点排线吧",
+            "Status": 2,
+            "Items": [
+                {
+                    "Key": "style_flat_unlit",
+                    "Description": "纯平涂无光照",
+                    "Detail": "摒弃所有光照计算，完全保留漫反射贴图的原始色彩与亮度，确保极度扁平化。",
+                    "IsConfirmed": true,
+                    "Category": "Visual Style"
+                },
+                {
+                    "Key": "style_moebius_outline",
+                    "Description": "手绘墨水描边",
+                    "Detail": "基于法线外扩的双Pass描边，结合顶点噪声扰动产生手绘画笔的轻微不均匀粗细变化。",
+                    "IsConfirmed": true,
+                    "Category": "Visual Style"
+                },
+                {
+                    "Key": "style_screenspace_hatching",
+                    "Description": "屏幕空间网点排线",
+                    "Detail": "使用基于屏幕UV的坐标去采样网点或排线贴图，通过特定的遮罩（Mask）控制其显示范围，还原莫比斯风格的经典阴影画法。",
+                    "IsConfirmed": true,
+                    "Category": "Visual Style"
+                }
+            ],
+            "RefinementCount": 2
+        },
+        {
+            "Id": "d45fda7e",
+            "Title": "Attribute & Varying Requirements",
+            "Type": 1,
+            "LLMProposal": "为了实现无光照基础渲染和法线外扩描边，需要提取网格的基础几何信息。法线不仅用于描边挤出，顶点颜色也可用于美术手动控制局部描边的粗细（例如脸部描边较细，外轮廓较粗）。由于可能需要加入屏幕空间的噪声扰动来模拟手绘感，还需要屏幕空间坐标。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "positionOS",
+                    "Description": "Object Space Position",
+                    "Detail": "用于基本的顶点坐标变换。",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "normalOS",
+                    "Description": "Object Space Normal",
+                    "Detail": "仅用于Outline Pass中，沿法线方向挤出顶点生成描边。",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "uv",
+                    "Description": "Texture Coordinates",
+                    "Detail": "用于采样基础贴图和噪声贴图。",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "vertexColor",
+                    "Description": "Vertex Color",
+                    "Detail": "可读取其Alpha或RGB通道，作为描边宽度的乘数权重，方便美术控制局部线条粗细。",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "positionCS",
+                    "Description": "Clip Space Position",
+                    "Detail": "裁剪空间坐标，光栅化必备。",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                },
+                {
+                    "Key": "uv",
+                    "Description": "UV Coordinates",
+                    "Detail": "传递给片元着色器采样纹理。",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                },
+                {
+                    "Key": "screenPos",
+                    "Description": "Screen Position",
+                    "Detail": "用于计算屏幕空间的噪声，使得线条的抖动在屏幕空间保持一致尺寸。",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "86f7547f",
+            "Title": "Required Textures & Resources",
+            "Type": 2,
+            "LLMProposal": "由于不受光照影响，材质表现高度依赖基础贴图。同时需要一张噪声贴图来实现手绘线条的不规则感。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "_BaseMap",
+                    "Description": "基础颜色贴图 (Albedo)",
+                    "Detail": "包含平涂色彩和物体内部排线（Hatching）细节的贴图。",
+                    "IsConfirmed": true,
+                    "Category": "User Provided"
+                },
+                {
+                    "Key": "_NoiseTex",
+                    "Description": "手绘噪声贴图 (Noise)",
+                    "Detail": "用于扰动描边的顶点位置或进行透明度裁剪的黑白噪声图。也可以通过Shader内部的简单伪随机函数程序化生成。",
+                    "IsConfirmed": true,
+                    "Category": "Procedural"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "2ea7ee9d",
+            "Title": "Vertex Processing Strategy",
+            "Type": 3,
+            "LLMProposal": "Base Pass的顶点着色器仅需执行标准的MVP变换。Outline Pass的顶点着色器是手绘感的核心，需要将顶点沿法线（平滑法线优先，如果没有则用普通法线）向外偏移。同时可以结合屏幕空间坐标或UV与时间计算一个微小的随机偏移量，使得描边宽度发生轻微变化，打破生硬的工业感。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "base_vertex_transform",
+                    "Description": "标准空间转换 (Base Pass)",
+                    "Detail": "执行 TransformObjectToHClip 获取 positionCS，透传 UV。",
+                    "IsConfirmed": true,
+                    "Category": "Transform"
+                },
+                {
+                    "Key": "outline_extrusion",
+                    "Description": "法线外扩处理 (Outline Pass)",
+                    "Detail": "将顶点坐标转换到裁剪空间后，在NDC空间或观察空间沿法线的XY方向进行偏移，偏移量由 _OutlineWidth 决定。",
+                    "IsConfirmed": true,
+                    "Category": "Vertex Displacement"
+                },
+                {
+                    "Key": "hand_drawn_jitter",
+                    "Description": "手绘抖动扰动 (Outline Pass)",
+                    "Detail": "使用模型空间坐标或UV经过Hash函数生成伪随机值，叠加到描边宽度上，模拟墨水线条的粗细不均。可选：加入正弦时间函数实现动态抖动（Boiling lines）。",
+                    "IsConfirmed": true,
+                    "Category": "Vertex Displacement"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "ce7bee08",
+            "Title": "Fragment Shader Logic",
+            "Type": 4,
+            "LLMProposal": "片元着色器分为两个不同的Pass处理。基础Pass极端简化，不包含任何Diffuse、Specular、GI或Shadow计算，仅输出纹理颜色以保证纯粹的“扁平”感。描边Pass直接输出统一的墨水颜色，或者带有轻微颜色渐变的墨水色。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "base_color_sampling",
+                    "Description": "基础纹理采样 (Base Pass)",
+                    "Detail": "采样 _BaseMap 并乘以 _BaseColor 得到最终输出颜色，不计算任何光照。",
+                    "IsConfirmed": true,
+                    "Category": "Base Pass"
+                },
+                {
+                    "Key": "outline_color_output",
+                    "Description": "描边颜色输出 (Outline Pass)",
+                    "Detail": "直接输出 _OutlineColor。若想模拟马克笔/水彩效果，可以与基础底色进行一定比例的Multiply混合。",
+                    "IsConfirmed": true,
+                    "Category": "Outline Pass"
+                },
+                {
+                    "Key": "outline_noise_clip",
+                    "Description": "边缘斑驳裁剪 (Outline Pass - 可选)",
+                    "Detail": "如果在边缘需要类似粉笔或枯笔的断断续续感，可以在片元级采样噪声，当噪声值小于阈值时使用 clip() 剔除像素。",
+                    "IsConfirmed": true,
+                    "Category": "Outline Pass"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "b2735881",
+            "Title": "Render States and Properties",
+            "Type": 5,
+            "LLMProposal": "作为不透明材质，标准的ZWrite和ZTest设置即可。关键在于两个Pass的剔除（Culling）模式必须相反。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "Cull_Base",
+                    "Description": "Base Pass 剔除模式",
+                    "Detail": "Cull Back (默认)，正常渲染正面。",
+                    "IsConfirmed": true,
+                    "Category": "Render State"
+                },
+                {
+                    "Key": "Cull_Outline",
+                    "Description": "Outline Pass 剔除模式",
+                    "Detail": "Cull Front，剔除正面，仅渲染放大后的背面，从而形成外轮廓。",
+                    "IsConfirmed": true,
+                    "Category": "Render State"
+                },
+                {
+                    "Key": "ZWrite_Blend",
+                    "Description": "深度与混合设置",
+                    "Detail": "ZWrite On, Blend Off。因为是实心扁平风格，不需要半透明混合。",
+                    "IsConfirmed": true,
+                    "Category": "Render State"
+                },
+                {
+                    "Key": "RenderType",
+                    "Description": "渲染类型",
+                    "Detail": "Tags { \"RenderType\"=\"Opaque\" \"Queue\"=\"Geometry\" }",
+                    "IsConfirmed": true,
+                    "Category": "Tags"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "14146730",
+            "Title": "Pass Configuration",
+            "Type": 6,
+            "LLMProposal": "实现该效果需要完整的两个Pass：一个用于渲染物品本身的无光照扁平画面，另一个专门用于渲染背面的手绘风格描边。如果需要投射阴影（尽管自身不受光照，但可能需要在地面投射阴影），可以保留ShadowCaster Pass。",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 2,
+            "Items": [
+                {
+                    "Key": "Pass_UnlitBase",
+                    "Description": "Unlit Base Pass",
+                    "Detail": "LightMode = UniversalForward 或 SRPDefaultUnlit。不包含光照循环，纯净的纹理颜色输出。",
+                    "IsConfirmed": true,
+                    "Category": "Pass"
+                },
+                {
+                    "Key": "Pass_Outline",
+                    "Description": "Outline Pass",
+                    "Detail": "LightMode = Outline（自定义名称或SRPDefaultUnlit）。配置为 Cull Front，处理顶点法线外扩和墨水颜色渲染。",
+                    "IsConfirmed": true,
+                    "Category": "Pass"
+                },
+                {
+                    "Key": "Pass_ShadowCaster",
+                    "Description": "Shadow Caster Pass (可选)",
+                    "Detail": "保留 URP 标准的 ShadowCaster Pass 以便该物体可以在其他受光物体上投下阴影（增强整体场景的空间感）。",
+                    "IsConfirmed": true,
+                    "Category": "Pass"
+                }
+            ],
+            "RefinementCount": 0
+        }
+    ]
+}

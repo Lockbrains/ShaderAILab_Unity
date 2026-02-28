@@ -13,6 +13,7 @@
     background-color: #2d2d2d;
     border-bottom-width: 1px;
     border-bottom-color: #3c3c3c;
+    flex-shrink: 0;
 }
 
 .toolbar-title {
@@ -45,6 +46,7 @@
     border-bottom-width: 1px;
     border-bottom-color: #3c3c3c;
     padding-left: 8px;
+    flex-shrink: 0;
 }
 
 .tab-btn {
@@ -761,4 +763,687 @@
 .block-item__action-btn--disabled {
     background-color: #5a3a3a;
     color: #e08080;
+}
+
+/* ---- History Tab ---- */
+
+.history-content {
+    flex-grow: 1;
+    padding: 8px;
+    background-color: #1e1e1e;
+}
+
+.history-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    margin-bottom: 6px;
+}
+
+.history-clear-btn {
+    height: 22px;
+    padding: 0 10px;
+    font-size: 11px;
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border-width: 0;
+    border-radius: 3px;
+}
+
+.history-clear-btn:hover {
+    background-color: #505050;
+}
+
+.history-empty {
+    color: #808080;
+    font-size: 12px;
+    padding: 20px 12px;
+    -unity-text-align: middle-center;
+}
+
+.history-scroll {
+    flex-grow: 1;
+}
+
+.history-card {
+    margin: 4px 8px;
+    padding: 8px 10px;
+    background-color: #2a2a2a;
+    border-radius: 4px;
+    border-left-width: 3px;
+    border-left-color: #555555;
+}
+
+.history-card--success {
+    border-left-color: #3c9a5f;
+}
+
+.history-card--error {
+    border-left-color: #c44;
+}
+
+.history-card__top {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.history-card__time {
+    font-size: 10px;
+    color: #888888;
+    margin-right: 8px;
+    min-width: 55px;
+}
+
+.history-card__target {
+    font-size: 10px;
+    color: #6699cc;
+    flex-grow: 1;
+}
+
+.history-card__status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    -unity-font-style: bold;
+}
+
+.history-card__status--ok {
+    color: #3c9a5f;
+    background-color: #1a3325;
+}
+
+.history-card__status--err {
+    color: #e06060;
+    background-color: #331a1a;
+}
+
+.history-card__prompt {
+    font-size: 12px;
+    color: #e0e0e0;
+    white-space: normal;
+    margin-bottom: 3px;
+}
+
+.history-card__summary {
+    font-size: 11px;
+    color: #a0c0a0;
+    -unity-font-style: italic;
+    margin-bottom: 2px;
+}
+
+.history-card__error-text {
+    font-size: 11px;
+    color: #e08080;
+    white-space: normal;
+    margin-bottom: 2px;
+}
+
+.history-card__response {
+    margin-top: 4px;
+    padding: 6px;
+    background-color: #1e1e1e;
+    border-radius: 3px;
+}
+
+.history-card__response-text {
+    font-size: 11px;
+    color: #cccccc;
+    white-space: normal;
+    -unity-font-definition: resource("Fonts/FiraMono-Regular");
+}
+
+.history-card__bottom {
+    flex-direction: row;
+    margin-top: 6px;
+}
+
+.history-card__toggle-btn,
+.history-card__resend-btn {
+    height: 20px;
+    padding: 0 8px;
+    font-size: 10px;
+    background-color: #383838;
+    color: #bbbbbb;
+    border-width: 0;
+    border-radius: 3px;
+    margin-right: 6px;
+}
+
+.history-card__toggle-btn:hover,
+.history-card__resend-btn:hover {
+    background-color: #4a4a4a;
+}
+
+/* ---- Parameter Panel: Show All toggle ---- */
+
+.param-toggle-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+}
+
+.param-toggle-label {
+    font-size: 11px;
+    color: #aaaaaa;
+    margin-right: 6px;
+}
+
+.param-empty-label {
+    font-size: 11px;
+    color: #808080;
+    padding: 12px 8px;
+    -unity-font-style: italic;
+}
+
+/* ==================================================================
+   Plan View
+   ================================================================== */
+
+.plan-content {
+    flex-grow: 1;
+    flex-direction: column;
+    padding: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ---- Plan Header ---- */
+
+.plan-header {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: #252525;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+    flex-shrink: 0;
+}
+
+.plan-header .panel-header {
+    margin-right: 10px;
+}
+
+.plan-status-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background-color: #3c3c3c;
+    color: #999999;
+    -unity-font-style: bold;
+}
+
+.plan-status-badge--refining {
+    background-color: #3a4a2a;
+    color: #a8d86e;
+}
+
+.plan-status-badge--ready {
+    background-color: #1a3a5a;
+    color: #5dade2;
+}
+
+.plan-status-badge--executing {
+    background-color: #4a3a1a;
+    color: #f0c040;
+}
+
+.plan-status-badge--completed {
+    background-color: #1a4a2a;
+    color: #4cca6a;
+}
+
+.plan-status-badge--failed {
+    background-color: #4a1a1a;
+    color: #e06060;
+}
+
+.plan-action-btn {
+    height: 22px;
+    padding: 0 10px;
+    font-size: 11px;
+    border-radius: 3px;
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border-width: 0;
+    margin-left: 4px;
+}
+
+.plan-action-btn:hover {
+    background-color: #505050;
+}
+
+.plan-action-btn--danger {
+    color: #e08080;
+}
+
+.plan-action-btn--danger:hover {
+    background-color: #5a2020;
+}
+
+/* ---- Empty State ---- */
+
+.plan-empty-state {
+    flex-grow: 1;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 60px;
+}
+
+.plan-empty-title {
+    font-size: 18px;
+    color: #e0e0e0;
+    -unity-font-style: bold;
+    margin-bottom: 12px;
+}
+
+.plan-empty-desc {
+    font-size: 12px;
+    color: #999999;
+    margin-bottom: 20px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+    max-width: 600px;
+}
+
+.plan-request-input {
+    width: 100%;
+    max-width: 600px;
+    min-height: 80px;
+    margin-bottom: 12px;
+}
+
+.plan-request-input > .unity-text-field__input {
+    background-color: #2a2a2a;
+    border-color: #4a4a4a;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 13px;
+    padding: 8px 10px;
+    white-space: normal;
+    min-height: 80px;
+}
+
+.plan-request-input > .unity-text-field__input:focus {
+    border-color: #0e639c;
+}
+
+.plan-create-btn {
+    width: 180px;
+    height: 32px;
+    font-size: 13px;
+}
+
+/* ---- Plan Body ---- */
+
+.plan-body {
+    flex-grow: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.plan-request-section {
+    padding: 10px 14px;
+    background-color: #222222;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+    flex-shrink: 0;
+}
+
+.plan-section-label {
+    font-size: 10px;
+    color: #808080;
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+}
+
+.plan-request-text {
+    font-size: 13px;
+    color: #d0d0d0;
+    white-space: normal;
+}
+
+.plan-phases-scroll {
+    flex-grow: 1;
+    padding: 8px;
+}
+
+.plan-loading-label {
+    font-size: 13px;
+    color: #a0a0a0;
+    -unity-font-style: italic;
+    padding: 20px;
+    -unity-text-align: middle-center;
+}
+
+/* ---- Phase Card ---- */
+
+.phase-card {
+    margin: 4px 6px;
+    padding: 0;
+    background-color: #2a2a2a;
+    border-radius: 5px;
+    border-left-width: 3px;
+    border-left-color: #555555;
+    overflow: hidden;
+}
+
+.phase-card--pending {
+    border-left-color: #666666;
+}
+
+.phase-card--waiting {
+    border-left-color: #d4a017;
+}
+
+.phase-card--confirmed {
+    border-left-color: #3c9a5f;
+}
+
+.phase-card--executing {
+    border-left-color: #e0a030;
+}
+
+.phase-card--done {
+    border-left-color: #4cca6a;
+}
+
+.phase-card--skipped {
+    border-left-color: #808080;
+    opacity: 0.7;
+}
+
+/* ---- Phase Card Header ---- */
+
+.phase-card__header {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 10px;
+    background-color: #303030;
+}
+
+.phase-card__icon {
+    font-size: 14px;
+    color: #a0a0a0;
+    width: 20px;
+    -unity-text-align: middle-center;
+    margin-right: 6px;
+}
+
+.phase-card__title {
+    font-size: 12px;
+    color: #e0e0e0;
+    -unity-font-style: bold;
+}
+
+.phase-card__status-label {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background-color: #3c3c3c;
+    color: #999999;
+}
+
+.phase-card__status-label--pending {
+    color: #999999;
+}
+
+.phase-card__status-label--waiting {
+    background-color: #3a3520;
+    color: #d4a017;
+}
+
+.phase-card__status-label--confirmed {
+    background-color: #1a3a25;
+    color: #4cca6a;
+}
+
+.phase-card__status-label--done {
+    background-color: #1a3a25;
+    color: #4cca6a;
+}
+
+.phase-card__status-label--skipped {
+    background-color: #333333;
+    color: #808080;
+}
+
+.phase-card__collapse-btn {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    font-size: 10px;
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    color: #808080;
+    margin-left: 4px;
+}
+
+.phase-card__collapse-btn:hover {
+    color: #cccccc;
+}
+
+/* ---- Phase Card Body ---- */
+
+.phase-card__body {
+    padding: 10px 12px;
+}
+
+.phase-card__proposal {
+    font-size: 12px;
+    color: #c8c8c8;
+    white-space: normal;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background-color: #252525;
+    border-radius: 3px;
+}
+
+/* ---- Phase Card Items ---- */
+
+.phase-card__items {
+    margin-bottom: 8px;
+}
+
+.phase-card__item-category {
+    font-size: 10px;
+    color: #808080;
+    -unity-font-style: bold;
+    margin-top: 6px;
+    margin-bottom: 2px;
+    padding-left: 4px;
+}
+
+.phase-card__item-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 3px 4px;
+    margin: 1px 0;
+    border-radius: 2px;
+}
+
+.phase-card__item-row:hover {
+    background-color: #333333;
+}
+
+.phase-card__item-check {
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.phase-card__item-key {
+    font-size: 11px;
+    color: #7ec8e3;
+    -unity-font-style: bold;
+    min-width: 80px;
+    margin-right: 8px;
+}
+
+.phase-card__item-desc {
+    font-size: 11px;
+    color: #b0b0b0;
+    flex-grow: 1;
+}
+
+.phase-card__item-detail {
+    font-size: 10px;
+    color: #808080;
+    -unity-font-style: italic;
+    margin-left: 8px;
+}
+
+.phase-card__texture-hint {
+    font-size: 10px;
+    color: #b09060;
+    -unity-font-style: italic;
+    white-space: normal;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+    background-color: #2a2820;
+    border-radius: 3px;
+}
+
+/* ---- Phase Card Question ---- */
+
+.phase-card__question-section {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background-color: #2e2e1e;
+    border-radius: 3px;
+    border-left-width: 2px;
+    border-left-color: #d4a017;
+}
+
+.phase-card__question {
+    font-size: 12px;
+    color: #d4c090;
+    white-space: normal;
+}
+
+/* ---- Phase Card User Input ---- */
+
+.phase-card__user-input {
+    margin-top: 4px;
+}
+
+.phase-card__feedback-input {
+    min-height: 40px;
+    margin-bottom: 6px;
+}
+
+.phase-card__feedback-input > .unity-text-field__input {
+    background-color: #1e1e1e;
+    border-color: #4a4a4a;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-size: 12px;
+    padding: 6px 8px;
+    white-space: normal;
+    min-height: 40px;
+}
+
+.phase-card__feedback-input > .unity-text-field__input:focus {
+    border-color: #0e639c;
+}
+
+.phase-card__actions {
+    flex-direction: row;
+    justify-content: flex-end;
+}
+
+.phase-card__action-btn {
+    height: 22px;
+    padding: 0 12px;
+    font-size: 11px;
+    border-radius: 3px;
+    border-width: 0;
+    margin-left: 6px;
+}
+
+.phase-card__action-btn--confirm {
+    background-color: #1a5a3a;
+    color: #a0e0b0;
+}
+
+.phase-card__action-btn--confirm:hover {
+    background-color: #2a7a4a;
+}
+
+.phase-card__action-btn--refine {
+    background-color: #3a4a60;
+    color: #90b8e0;
+}
+
+.phase-card__action-btn--refine:hover {
+    background-color: #4a5a70;
+}
+
+.phase-card__action-btn--skip {
+    background-color: #3c3c3c;
+    color: #999999;
+}
+
+.phase-card__action-btn--skip:hover {
+    background-color: #505050;
+}
+
+/* ---- Phase Card Footer ---- */
+
+.phase-card__footer {
+    font-size: 11px;
+    color: #70c080;
+    padding: 6px 0 0 0;
+    margin-top: 6px;
+    border-top-width: 1px;
+    border-top-color: #3c3c3c;
+}
+
+/* ---- Execute Bar ---- */
+
+.plan-execute-bar {
+    padding: 8px 14px;
+    background-color: #252525;
+    border-top-width: 1px;
+    border-top-color: #3c3c3c;
+    flex-shrink: 0;
+    min-height: 50px;
+}
+
+.plan-progress-track {
+    height: 4px;
+    background-color: #1e1e1e;
+    border-radius: 2px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+
+.plan-progress-fill {
+    height: 100%;
+    background-color: #0e639c;
+    border-radius: 2px;
+    width: 0%;
+    transition-property: width;
+    transition-duration: 300ms;
+}
+
+.plan-execute-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.plan-progress-label {
+    font-size: 11px;
+    color: #999999;
+}
+
+.plan-execute-btn {
+    height: 28px;
+    padding: 0 20px;
+    font-size: 12px;
 }

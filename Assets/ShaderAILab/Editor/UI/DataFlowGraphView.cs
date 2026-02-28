@@ -19,16 +19,20 @@ namespace ShaderAILab.Editor.UI
         const string NodeIdAttributes = "node_attributes";
         const string NodeIdVaryings   = "node_varyings";
         const string NodeIdGlobals    = "node_globals";
+        const string NodeIdOptions    = "node_options";
 
-        // Default positions: three nodes aligned top, evenly spaced
         static readonly Vector2 DefaultAttrPos    = new Vector2(80, 80);
         static readonly Vector2 DefaultGlobalsPos = new Vector2(380, 80);
         static readonly Vector2 DefaultVaryPos    = new Vector2(680, 80);
+        static readonly Vector2 DefaultOptionsPos = new Vector2(380, 440);
 
         DataFlowGraph _graph;
+        ShaderPass _currentPass;
+        ShaderGlobalSettings _globalSettings;
         DataFlowNodeView _attrNode;
         DataFlowNodeView _varyNode;
         DataFlowNodeView _globalsNode;
+        ShaderOptionsNodeView _optionsNode;
         DataFlowFieldListPanel _fieldListPanel;
         Label _errorLabel;
 
@@ -72,7 +76,14 @@ namespace ShaderAILab.Editor.UI
 
         public void Rebuild(DataFlowGraph graph)
         {
+            Rebuild(graph, null);
+        }
+
+        public void Rebuild(DataFlowGraph graph, ShaderPass pass, ShaderGlobalSettings globalSettings = null)
+        {
             _graph = graph;
+            _currentPass = pass;
+            _globalSettings = globalSettings;
 
             var edgeList = new List<GraphElement>();
             foreach (var e in edges) edgeList.Add(e);
@@ -80,6 +91,7 @@ namespace ShaderAILab.Editor.UI
             if (_attrNode != null) { RemoveElement(_attrNode); _attrNode = null; }
             if (_varyNode != null) { RemoveElement(_varyNode); _varyNode = null; }
             if (_globalsNode != null) { RemoveElement(_globalsNode); _globalsNode = null; }
+            if (_optionsNode != null) { RemoveElement(_optionsNode); _optionsNode = null; }
 
             var errors = graph.Validate();
 
@@ -109,6 +121,19 @@ namespace ShaderAILab.Editor.UI
             _globalsNode.SetPosition(GetSavedOrDefaultRect(NodeIdGlobals, DefaultGlobalsPos, 260, 300));
             _globalsNode.Rebuild(globalFields, null);
             AddElement(_globalsNode);
+
+            // Shader Options node
+            if (pass != null)
+            {
+                if (pass.RenderState == null)
+                    pass.RenderState = new PassRenderState();
+
+                _optionsNode = new ShaderOptionsNodeView();
+                _optionsNode.SetPosition(GetSavedOrDefaultRect(NodeIdOptions, DefaultOptionsPos, 280, 360));
+                _optionsNode.OnOptionsChanged += () => OnGraphChanged?.Invoke();
+                _optionsNode.Rebuild(pass.RenderState, _globalSettings);
+                AddElement(_optionsNode);
+            }
 
             // Edges
             foreach (var dep in graph.GetActiveDependencies())
@@ -151,6 +176,8 @@ namespace ShaderAILab.Editor.UI
                         _graph.SaveNodePosition(NodeIdVaryings, _varyNode.GetPosition().x, _varyNode.GetPosition().y);
                     else if (elem == _globalsNode)
                         _graph.SaveNodePosition(NodeIdGlobals, _globalsNode.GetPosition().x, _globalsNode.GetPosition().y);
+                    else if (elem == _optionsNode)
+                        _graph.SaveNodePosition(NodeIdOptions, _optionsNode.GetPosition().x, _optionsNode.GetPosition().y);
                 }
                 OnGraphChanged?.Invoke();
             }

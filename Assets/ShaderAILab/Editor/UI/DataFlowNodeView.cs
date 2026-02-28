@@ -75,10 +75,18 @@ namespace ShaderAILab.Editor.UI
                 row.style.paddingRight = 6;
                 row.style.height = 24;
 
-                // Tooltip: always show variable name + HLSL type + annotation
-                string tipText = $"{field.Name}  ({field.HLSLType})";
-                if (!string.IsNullOrEmpty(field.Semantic))
-                    tipText += $"  : {field.Semantic}";
+                string tipText;
+                if (field.Stage == DataFlowStage.Global
+                    && DataFlowRegistry.GlobalTooltips.TryGetValue(field.Name, out string globalTip))
+                {
+                    tipText = globalTip;
+                }
+                else
+                {
+                    tipText = $"{field.Name}  ({field.HLSLType})";
+                    if (!string.IsNullOrEmpty(field.Semantic))
+                        tipText += $"  : {field.Semantic}";
+                }
                 if (!string.IsNullOrEmpty(field.Annotation))
                     tipText += $"\n{field.Annotation}";
                 row.tooltip = tipText;

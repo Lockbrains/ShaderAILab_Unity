@@ -4,16 +4,38 @@ using System.Collections.Generic;
 namespace ShaderAILab.Editor.Core
 {
     [Serializable]
+    public class StencilState
+    {
+        public int Ref;
+        public string Comp = "Always";
+        public string Pass = "Keep";
+        public string Fail = "Keep";
+        public string ZFail = "Keep";
+        public int ReadMask = 255;
+        public int WriteMask = 255;
+
+        public bool HasOverrides =>
+            Comp != "Always" || Pass != "Keep" || Fail != "Keep" ||
+            ZFail != "Keep" || Ref != 0 || ReadMask != 255 || WriteMask != 255;
+    }
+
+    [Serializable]
     public class PassRenderState
     {
         public string CullMode;
         public string BlendMode;
         public string ZWriteMode;
+        public string ZTestMode;
+        public string ColorMask;
+        public StencilState Stencil;
 
         public bool HasOverrides =>
             !string.IsNullOrEmpty(CullMode) ||
             !string.IsNullOrEmpty(BlendMode) ||
-            !string.IsNullOrEmpty(ZWriteMode);
+            !string.IsNullOrEmpty(ZWriteMode) ||
+            !string.IsNullOrEmpty(ZTestMode) ||
+            !string.IsNullOrEmpty(ColorMask) ||
+            (Stencil != null && Stencil.HasOverrides);
 
         public PassRenderState() { }
 

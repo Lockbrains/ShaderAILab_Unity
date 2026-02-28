@@ -41,16 +41,30 @@ namespace ShaderAILab.Editor.Core
 
         public static readonly DataFlowField[] AllGlobals =
         {
-            new DataFlowField("_Time",            "float4", "", "Time (t/20, t, t*2, t*3)",       DataFlowStage.Global, false),
-            new DataFlowField("_SinTime",         "float4", "", "Sine of Time",                   DataFlowStage.Global, false),
-            new DataFlowField("_CosTime",         "float4", "", "Cosine of Time",                 DataFlowStage.Global, false),
-            new DataFlowField("unity_DeltaTime",  "float4", "", "Delta Time (dt, 1/dt, ...)",     DataFlowStage.Global, false),
-            new DataFlowField("_WorldSpaceCameraPos", "float3", "", "Camera Position (World)",    DataFlowStage.Global, false),
-            new DataFlowField("_ScreenParams",    "float4", "", "Screen Size (w, h, 1+1/w, 1+1/h)", DataFlowStage.Global, false),
-            new DataFlowField("_ProjectionParams","float4", "", "Projection Params (near/far)",   DataFlowStage.Global, false),
-            new DataFlowField("unity_OrthoParams","float4", "", "Ortho Params",                   DataFlowStage.Global, false),
-            new DataFlowField("unity_ObjectToWorld","float4x4","","Object → World Matrix",        DataFlowStage.Global, false),
-            new DataFlowField("unity_WorldToObject","float4x4","","World → Object Matrix",        DataFlowStage.Global, false),
+            new DataFlowField("_Time",            "float4", "", "Time",             DataFlowStage.Global, false),
+            new DataFlowField("_SinTime",         "float4", "", "Sin Time",         DataFlowStage.Global, false),
+            new DataFlowField("_CosTime",         "float4", "", "Cos Time",         DataFlowStage.Global, false),
+            new DataFlowField("unity_DeltaTime",  "float4", "", "Delta Time",       DataFlowStage.Global, false),
+            new DataFlowField("_WorldSpaceCameraPos", "float3", "", "Camera Pos",   DataFlowStage.Global, false),
+            new DataFlowField("_ScreenParams",    "float4", "", "Screen Params",    DataFlowStage.Global, false),
+            new DataFlowField("_ProjectionParams","float4", "", "Projection",       DataFlowStage.Global, false),
+            new DataFlowField("unity_OrthoParams","float4", "", "Ortho Params",     DataFlowStage.Global, false),
+            new DataFlowField("unity_ObjectToWorld","float4x4","","Obj→World",      DataFlowStage.Global, false),
+            new DataFlowField("unity_WorldToObject","float4x4","","World→Obj",      DataFlowStage.Global, false),
+        };
+
+        public static readonly Dictionary<string, string> GlobalTooltips = new Dictionary<string, string>
+        {
+            ["_Time"]                = "_Time (float4)\nx: t/20, y: t, z: t*2, w: t*3\nContinuous time since scene load",
+            ["_SinTime"]             = "_SinTime (float4)\nx: sin(t/8), y: sin(t/4), z: sin(t/2), w: sin(t)",
+            ["_CosTime"]             = "_CosTime (float4)\nx: cos(t/8), y: cos(t/4), z: cos(t/2), w: cos(t)",
+            ["unity_DeltaTime"]      = "unity_DeltaTime (float4)\nx: dt, y: 1/dt, z: smoothDt, w: 1/smoothDt",
+            ["_WorldSpaceCameraPos"] = "_WorldSpaceCameraPos (float3)\nCamera world-space position (x, y, z)",
+            ["_ScreenParams"]        = "_ScreenParams (float4)\nx: width, y: height, z: 1+1/width, w: 1+1/height",
+            ["_ProjectionParams"]    = "_ProjectionParams (float4)\nx: 1.0 (or -1.0 flipped), y: near, z: far, w: 1/far",
+            ["unity_OrthoParams"]    = "unity_OrthoParams (float4)\nx: ortho width, y: ortho height, z: unused, w: 1.0=ortho 0.0=persp",
+            ["unity_ObjectToWorld"]  = "unity_ObjectToWorld (float4x4)\nObject-space to world-space transformation matrix",
+            ["unity_WorldToObject"]  = "unity_WorldToObject (float4x4)\nWorld-space to object-space transformation matrix (inverse)",
         };
 
         // ---- Dependency rules: Varyings field -> required Attributes field(s) ----

@@ -1,0 +1,259 @@
+{
+    "Id": "30e442db",
+    "UserRequest": "我需要一个莫比斯风格的手绘shader，有描边，不受光照影响，有类似于素描的排线阴影",
+    "Status": 4,
+    "Phases": [
+        {
+            "Id": "e9fb350b",
+            "Title": "Moebius Style Visual Breakdown",
+            "Type": 0,
+            "LLMProposal": "明白！为了最大化保留色彩的纯粹性和手绘插画质感，我们将确保排线阴影效果直接叠加在底色（Base Color）之上。这意味着底色将作为统一的基底贯穿受光面与背光面，而阴影区域的程序化排线会以类似墨水绘制的方式（Alpha混合或正片叠底）直接覆盖在底色表面。目前的Moebius风格核心视觉支柱更新为：1) 全局贯穿的无光影平涂底色；2) 决定排线叠加区域的二值化光照遮罩；3) 直接叠加于底色之上的程序化交叉排线；4) 粗细与颜色皆可调的反转法线外部描边。",
+            "LLMQuestion": "",
+            "UserResponse": "直接叠加在base color上",
+            "Status": 2,
+            "Items": [
+                {
+                    "Key": "flat_color",
+                    "Description": "全局平涂底色 (Global Flat Base Color)",
+                    "Detail": "作为整个材质的最底层基础，无任何平滑的光照漫反射过渡。所有后续的阴影和排线细节都将直接叠加在此底色之上，确保模型整体色调的绝对统一和二次元色彩的纯粹性。",
+                    "IsConfirmed": true,
+                    "Category": "Base Form"
+                },
+                {
+                    "Key": "main_light_mask",
+                    "Description": "主光源遮罩 (Main Light Mask)",
+                    "Detail": "仅获取URP主光源方向计算NdotL，通过Step函数生成绝对的二值化遮罩。该遮罩忽略真实光照强度和衰减，专用于圈定哪些区域需要在底色上叠加排线阴影。",
+                    "IsConfirmed": true,
+                    "Category": "Lighting"
+                },
+                {
+                    "Key": "crosshatch_shadows",
+                    "Description": "叠加式屏幕排线 (Overlay Screen-Space Hatching)",
+                    "Detail": "在主光遮罩确定的阴影区域内，将自定义颜色的程序化交叉排线直接叠加（Overlay/Blend）在底色上。这种叠加方式模拟了墨水线条画在彩色画纸上的真实效果，使得底色在排线间隙中依然清晰可见。",
+                    "IsConfirmed": true,
+                    "Category": "Hatching"
+                },
+                {
+                    "Key": "ink_outline",
+                    "Description": "自定义颜色描边 (Custom Color Inverted Hull Outlines)",
+                    "Detail": "使用独立的Shader Pass将顶点沿法线方向外扩并剔除正面生成描边。允许自定义描边颜色，使其作为包裹在模型最外围的墨水线条，与叠加排线风格保持统一。",
+                    "IsConfirmed": true,
+                    "Category": "Outlines"
+                }
+            ],
+            "RefinementCount": 4
+        },
+        {
+            "Id": "23ae8d72",
+            "Title": "Attributes & Varyings Definition",
+            "Type": 1,
+            "LLMProposal": "To implement custom stylized lighting and screen-space hatching, we need vertex normals and screen space coordinates. Attributes will fetch local positions, normals, and UVs. Varyings will pass the clip space position, world space normal, and computed screen position to the fragment shader. If using scene lights to drive the shadow direction, world space position is also needed.",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "positionOS",
+                    "Description": "Object Space Position",
+                    "Detail": "Required for vertex transformation.",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "normalOS",
+                    "Description": "Object Space Normal",
+                    "Detail": "Required for outline displacement and lighting calculations.",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "uv",
+                    "Description": "Mesh UV Map",
+                    "Detail": "Used for sampling the base texture.",
+                    "IsConfirmed": true,
+                    "Category": "Attributes"
+                },
+                {
+                    "Key": "positionCS",
+                    "Description": "Clip Space Position",
+                    "Detail": "Required for rasterization.",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                },
+                {
+                    "Key": "normalWS",
+                    "Description": "World Space Normal",
+                    "Detail": "Used to calculate NdotL for shadow mask generation.",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                },
+                {
+                    "Key": "screenPos",
+                    "Description": "Screen Space Position",
+                    "Detail": "Used to sample the hatching texture so sketch lines stay uniform on screen.",
+                    "IsConfirmed": true,
+                    "Category": "Varyings"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "9ab64c3d",
+            "Title": "Shader Textures & Resources",
+            "Type": 2,
+            "LLMProposal": "根据您的补充，我们将扩展程序化排线的逻辑，实现“根据阴影深度交叉排线（Cross-hatching）”的效果。具体来说，我们将通过评估阴影的“深度”（利用光照方向与法线的点乘 NdotL 的值来划分多个阈值区间）来控制排线的叠加层级。在浅阴影区域，仅显示单向的基础排线；当进入深阴影区域时，动态叠加第二组甚至多组不同角度的程序化排线，从而形成密集交叉的素描网格效果。这种纯数学计算的方法不仅免去了贴图开销，还能通过参数精确控制交叉排线的密度和角度，实现极具层次感的素描阴影。",
+            "LLMQuestion": "",
+            "UserResponse": "根据阴影深度交叉排线",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "_BaseMap",
+                    "Description": "基础颜色贴图",
+                    "Detail": "提供角色或物体的固有色，配合莫比斯风格呈现平滑、纯粹的平涂色块。",
+                    "IsConfirmed": true,
+                    "Category": "Textures"
+                },
+                {
+                    "Key": "Hatching_Layer1",
+                    "Description": "第一层排线属性 (浅阴影)",
+                    "Detail": "包含频率(Frequency)、角度(Angle)和线条粗细(Thickness)。用于第一级浅阴影的单向素描线计算。",
+                    "IsConfirmed": true,
+                    "Category": "Procedural Hatching"
+                },
+                {
+                    "Key": "Hatching_Layer2",
+                    "Description": "第二层排线属性 (深阴影交叉)",
+                    "Detail": "包含与第一层不同角度（如垂直或相交）的设置。在更深的阴影区域与第一层叠加，形成交叉排线。",
+                    "IsConfirmed": true,
+                    "Category": "Procedural Hatching"
+                },
+                {
+                    "Key": "_ShadowDepthThresholds",
+                    "Description": "阴影深度分级阈值",
+                    "Detail": "用于划分阴影深度的参数（例如 Step 阈值：<0.5 显示第一层，<0.2 显示交叉层），精准控制不同排线层级的显现范围。",
+                    "IsConfirmed": true,
+                    "Category": "Properties"
+                }
+            ],
+            "RefinementCount": 2
+        },
+        {
+            "Id": "d4564820",
+            "Title": "Vertex Transformation & Outline Logic",
+            "Type": 3,
+            "LLMProposal": "The vertex shader will have two distinct behaviors based on the pass. In the Base Forward pass, it will perform standard MVP transformations, compute world space normals, and calculate ScreenPos (using ComputeScreenPos) for the fragment stage. In the Outline pass, it will displace the vertices along their normalOS (or smoothed normal) in clip space or view space to ensure constant outline thickness regardless of distance.",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "base_transform",
+                    "Description": "Standard Transform & ScreenPos",
+                    "Detail": "Transform positionOS to positionCS and compute screenPos.",
+                    "IsConfirmed": true,
+                    "Category": "Base Pass"
+                },
+                {
+                    "Key": "outline_displacement",
+                    "Description": "Normal Extrusion",
+                    "Detail": "Move vertices outwards by _OutlineWidth along normalOS/normalWS.",
+                    "IsConfirmed": true,
+                    "Category": "Outline Pass"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "455fa4e5",
+            "Title": "Stylized Rendering Blocks",
+            "Type": 4,
+            "LLMProposal": "The fragment shader is where the Moebius style comes to life. It will be broken into: 1) Base Color sampling. 2) Illumination Mask: dot product of Normal and Light Direction, passed through a step() function to create a hard black/white shadow mask. 3) Hatching Application: convert screenPos to UVs, sample the _HatchTex, and multiply it over the base color only where the Illumination Mask is black (shadowed). 4) Output: return the composited color completely unaffected by Unity's light intensity/color.",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "sample_base",
+                    "Description": "Base Color Sampling",
+                    "Detail": "Sample _BaseMap and multiply by _BaseColor.",
+                    "IsConfirmed": true,
+                    "Category": "Color"
+                },
+                {
+                    "Key": "calc_shadow_mask",
+                    "Description": "Binary Shadow Mask",
+                    "Detail": "Calculate NdotL = dot(normalWS, lightDir). Mask = step(_ShadowThreshold, NdotL).",
+                    "IsConfirmed": true,
+                    "Category": "Lighting"
+                },
+                {
+                    "Key": "sample_hatch",
+                    "Description": "Screen-Space Hatching",
+                    "Detail": "Calculate hatch UVs using screenPos.xy / screenPos.w * _HatchScale. Sample _HatchTex.",
+                    "IsConfirmed": true,
+                    "Category": "Stylization"
+                },
+                {
+                    "Key": "compose_final",
+                    "Description": "Final Composition",
+                    "Detail": "Lerp between (BaseColor * Hatching) and (BaseColor) using the Shadow Mask.",
+                    "IsConfirmed": true,
+                    "Category": "Output"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "73a8e3fe",
+            "Title": "Render State Configuration",
+            "Type": 5,
+            "LLMProposal": "The shader will represent solid, opaque geometry. Standard depth writing is needed. The cull mode differs between passes to achieve the inverted hull outline effect. The Base pass culls back faces, while the Outline pass culls front faces.",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 2,
+            "Items": [
+                {
+                    "Key": "base_state",
+                    "Description": "Base Pass Render State",
+                    "Detail": "Cull=Back, Blend=Off, ZWrite=On, RenderType=Opaque",
+                    "IsConfirmed": true,
+                    "Category": "State"
+                },
+                {
+                    "Key": "outline_state",
+                    "Description": "Outline Pass Render State",
+                    "Detail": "Cull=Front, Blend=Off, ZWrite=On, RenderType=Opaque",
+                    "IsConfirmed": true,
+                    "Category": "State"
+                }
+            ],
+            "RefinementCount": 0
+        },
+        {
+            "Id": "a8d7cdc3",
+            "Title": "Pass Structure",
+            "Type": 6,
+            "LLMProposal": "To achieve the clean ink-line look typical of Moebius art, a two-pass setup is required. The first pass handles the color and hatching, while the second pass specifically draws the black outlines.",
+            "LLMQuestion": "",
+            "UserResponse": "",
+            "Status": 4,
+            "Items": [
+                {
+                    "Key": "forward_pass",
+                    "Description": "Main Stylized Pass",
+                    "Detail": "LightMode = UniversalForward. Handles cel-shading and hatching logic.",
+                    "IsConfirmed": true,
+                    "Category": "Pass"
+                },
+                {
+                    "Key": "outline_pass",
+                    "Description": "Inverted Hull Outline Pass",
+                    "Detail": "LightMode = SRPDefaultUnlit (or custom). Culls front faces, displaces vertices, outputs flat black color (_OutlineColor).",
+                    "IsConfirmed": true,
+                    "Category": "Pass"
+                }
+            ],
+            "RefinementCount": 0
+        }
+    ]
+}

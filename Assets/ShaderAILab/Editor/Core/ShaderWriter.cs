@@ -19,6 +19,7 @@ namespace ShaderAILab.Editor.Core
             WriteProperties(sb, doc);
             WriteSubShader(sb, doc);
 
+            sb.AppendLine("    CustomEditor \"ShaderAILab.Editor.ShaderAILabGUI\"");
             sb.AppendLine("}");
             return sb.ToString();
         }
@@ -130,16 +131,59 @@ namespace ShaderAILab.Editor.Core
                     sb.AppendLine($"            Blend {pass.RenderState.BlendMode}");
                 if (!string.IsNullOrEmpty(pass.RenderState.ZWriteMode))
                     sb.AppendLine($"            ZWrite {pass.RenderState.ZWriteMode}");
+                if (!string.IsNullOrEmpty(pass.RenderState.ZTestMode))
+                    sb.AppendLine($"            ZTest {pass.RenderState.ZTestMode}");
+                if (!string.IsNullOrEmpty(pass.RenderState.ColorMask))
+                    sb.AppendLine($"            ColorMask {pass.RenderState.ColorMask}");
+
+                if (pass.RenderState.Stencil != null && pass.RenderState.Stencil.HasOverrides)
+                {
+                    var s = pass.RenderState.Stencil;
+                    sb.AppendLine("            Stencil {");
+                    sb.AppendLine($"                Ref {s.Ref}");
+                    sb.AppendLine($"                Comp {s.Comp}");
+                    sb.AppendLine($"                Pass {s.Pass}");
+                    if (s.Fail != "Keep")
+                        sb.AppendLine($"                Fail {s.Fail}");
+                    if (s.ZFail != "Keep")
+                        sb.AppendLine($"                ZFail {s.ZFail}");
+                    if (s.ReadMask != 255)
+                        sb.AppendLine($"                ReadMask {s.ReadMask}");
+                    if (s.WriteMask != 255)
+                        sb.AppendLine($"                WriteMask {s.WriteMask}");
+                    sb.AppendLine("            }");
+                }
             }
 
             sb.AppendLine();
             sb.AppendLine("            HLSLPROGRAM");
 
+            string allBlockCode = CollectAllBlockCode(pass);
+            bool needsLightingCode = false;
+            foreach (string id in LightingIdentifiers)
+            {
+                if (allBlockCode.Contains(id)) { needsLightingCode = true; break; }
+            }
+
             foreach (string pragma in pass.Pragmas)
                 sb.AppendLine($"            {pragma}");
+
+            if (needsLightingCode)
+            {
+                bool hasLightPragma = false;
+                foreach (string p in pass.Pragmas)
+                    if (p.Contains("_MAIN_LIGHT_SHADOWS")) { hasLightPragma = true; break; }
+                if (!hasLightPragma)
+                {
+                    sb.AppendLine("            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE");
+                    sb.AppendLine("            #pragma multi_compile _ _ADDITIONAL_LIGHTS");
+                    sb.AppendLine("            #pragma multi_compile_fragment _ _SHADOWS_SOFT");
+                }
+            }
             sb.AppendLine();
 
-            foreach (string include in pass.Includes)
+            var resolvedIncludes = ResolveRequiredIncludes(pass, allBlockCode);
+            foreach (string include in resolvedIncludes)
                 sb.AppendLine($"            #include \"{include}\"");
             sb.AppendLine();
 
@@ -329,9 +373,12 @@ namespace ShaderAILab.Editor.Core
                 var sig = ExtractFunctionSignature(b.Code);
                 if (sig == null) continue;
 
-                string paramStr = sig.Value.parameters.Trim();
-                if (sig.Value.returnType == "void" && paramStr.Contains("float3"))
-                    sb.AppendLine($"                {sig.Value.name}(posOS);");
+                if (sig.Value.returnType == "void")
+                {
+                    string call = BuildVertexFunctionCall(sig.Value.name, sig.Value.parameters);
+                    if (call != null)
+                        sb.AppendLine($"                {call}");
+                }
             }
 
             var emittedDeps = new HashSet<string>();
@@ -395,13 +442,19 @@ namespace ShaderAILab.Editor.Core
             sb.AppendLine("            half4 frag(Varyings input) : SV_Target {");
             sb.AppendLine("                half4 finalColor = half4(1,1,1,1);");
 
-            foreach (var b in pass.GetBlocksBySection(ShaderSectionType.Fragment))
+            var fragBlocks = pass.GetBlocksBySection(ShaderSectionType.Fragment);
+            var calledByOthers = FindInternallyCalledFunctions(fragBlocks);
+
+            foreach (var b in fragBlocks)
             {
                 if (!b.IsEnabled) continue;
                 if (IsDeclarationOnlyBlock(b.Code)) continue;
 
                 var sig = ExtractFunctionSignature(b.Code);
                 if (sig == null) continue;
+
+                string funcName = sig.Value.name;
+                if (calledByOthers.Contains(funcName)) continue;
 
                 string paramStr = sig.Value.parameters.Trim();
                 bool takesVaryingsOnly = paramStr.StartsWith("Varyings");
@@ -411,7 +464,6 @@ namespace ShaderAILab.Editor.Core
                 if (takesVaryingsOnly && commaCount == 0)
                 {
                     string returnType = sig.Value.returnType;
-                    string funcName = sig.Value.name;
 
                     if (returnType == "half4" || returnType == "float4")
                         sb.AppendLine($"                finalColor = {funcName}(input);");
@@ -425,6 +477,37 @@ namespace ShaderAILab.Editor.Core
             sb.AppendLine("                return finalColor;");
             sb.AppendLine("            }");
             sb.AppendLine();
+        }
+
+        static HashSet<string> FindInternallyCalledFunctions(List<ShaderBlock> blocks)
+        {
+            var allNames = new HashSet<string>();
+            var called = new HashSet<string>();
+
+            foreach (var b in blocks)
+            {
+                if (!b.IsEnabled || IsDeclarationOnlyBlock(b.Code)) continue;
+                var sig = ExtractFunctionSignature(b.Code);
+                if (sig != null)
+                    allNames.Add(sig.Value.name);
+            }
+
+            foreach (var b in blocks)
+            {
+                if (!b.IsEnabled || string.IsNullOrEmpty(b.Code)) continue;
+                foreach (string name in allNames)
+                {
+                    if (Regex.IsMatch(b.Code, @"\b" + Regex.Escape(name) + @"\s*\("))
+                    {
+                        var ownSig = ExtractFunctionSignature(b.Code);
+                        if (ownSig != null && ownSig.Value.name == name)
+                            continue;
+                        called.Add(name);
+                    }
+                }
+            }
+
+            return called;
         }
 
         // --------------------------------------------------------
@@ -502,6 +585,87 @@ namespace ShaderAILab.Editor.Core
             if (!match.Success) return null;
 
             return (match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value.Trim());
+        }
+
+        static readonly string[] LightingIdentifiers = {
+            "Light ", "GetMainLight", "GetAdditionalLight", "mainLight", "additionalLight",
+            "LightingLambert", "LightingSpecular", "UniversalFragmentPBR", "UniversalFragmentBlinnPhong",
+            "_MainLightPosition", "_MainLightColor", "LIGHT_ATTENUATION"
+        };
+
+        static readonly string[] ShadowIdentifiers = {
+            "GetShadowCoord", "MainLightRealtimeShadow", "AdditionalLightRealtimeShadow",
+            "TransformWorldToShadowCoord", "SHADOW_ATTENUATION", "_MAIN_LIGHT_SHADOWS"
+        };
+
+        static List<string> ResolveRequiredIncludes(ShaderPass pass, string allBlockCode = null)
+        {
+            var includes = new HashSet<string>(pass.Includes);
+            string allCode = allBlockCode ?? CollectAllBlockCode(pass);
+
+            bool needsLighting = false;
+            foreach (string id in LightingIdentifiers)
+            {
+                if (allCode.Contains(id)) { needsLighting = true; break; }
+            }
+
+            bool needsShadows = false;
+            foreach (string id in ShadowIdentifiers)
+            {
+                if (allCode.Contains(id)) { needsShadows = true; break; }
+            }
+
+            if (needsLighting || needsShadows)
+                includes.Add("Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl");
+
+            return new List<string>(includes);
+        }
+
+        static string CollectAllBlockCode(ShaderPass pass)
+        {
+            var sb = new StringBuilder();
+            foreach (var block in pass.Blocks)
+            {
+                if (!string.IsNullOrEmpty(block.Code))
+                    sb.AppendLine(block.Code);
+            }
+            return sb.ToString();
+        }
+
+        static readonly Regex ReParamSplit = new Regex(
+            @"(?:inout\s+|in\s+|out\s+)?(float[234]?|half[234]?|int|uint|Varyings|Attributes)\s+(\w+)",
+            RegexOptions.Compiled);
+
+        static string BuildVertexFunctionCall(string funcName, string rawParams)
+        {
+            if (string.IsNullOrEmpty(rawParams)) return null;
+
+            var matches = ReParamSplit.Matches(rawParams);
+            if (matches.Count == 0) return null;
+
+            var args = new List<string>();
+            foreach (Match m in matches)
+            {
+                string type = m.Groups[1].Value;
+                string paramName = m.Groups[2].Value.ToLowerInvariant();
+
+                if (paramName.Contains("pos") || paramName == "positionos")
+                    args.Add("posOS");
+                else if (paramName.Contains("normal"))
+                    args.Add("input.normalOS");
+                else if (paramName.Contains("tangent"))
+                    args.Add("input.tangentOS");
+                else if (paramName.Contains("uv") || paramName == "texcoord")
+                    args.Add("input.uv");
+                else if (type.StartsWith("float3") && args.Count == 0)
+                    args.Add("posOS");
+                else if (type.StartsWith("float3"))
+                    args.Add("input.normalOS");
+                else
+                    args.Add("posOS");
+            }
+
+            return $"{funcName}({string.Join(", ", args)});";
         }
 
         static string PropertyTypeString(ShaderProperty p)

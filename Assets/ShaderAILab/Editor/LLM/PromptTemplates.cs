@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 using ShaderAILab.Editor.Core;
+using PropertyMeta = ShaderAILab.Editor.ShaderAILabGUI.PropertyMeta;
 
 namespace ShaderAILab.Editor.LLM
 {
@@ -46,8 +48,18 @@ When the user requests a NEW PASS (e.g. outline pass, shadow pass, custom effect
    - name: A short English name (e.g. ""Outline"", ""Silhouette"", ""CustomShadow"").
    - lightmode: The URP LightMode tag (e.g. ""SRPDefaultUnlit"" for outline/unlit extra passes, ""UniversalForward"" for lit passes).
 2. After the pass tag, optionally specify per-pass render state overrides:
-   // [AILab_PassState: cull=""Front"" zwrite=""On""]
-   Common overrides: cull (Back/Front/Off), blend (e.g. ""SrcAlpha OneMinusSrcAlpha""), zwrite (On/Off).
+   // [AILab_PassState: cull=""Front"" zwrite=""On"" ztest=""LEqual"" colormask=""RGB""]
+   // [AILab_Stencil: ref=""1"" comp=""Always"" pass=""Replace"" fail=""Keep"" zfail=""Keep"" readmask=""255"" writemask=""255""]
+   Supported overrides:
+     - cull: Back, Front, Off
+     - blend: e.g. ""SrcAlpha OneMinusSrcAlpha"", ""One One""
+     - zwrite: On, Off
+     - ztest: LEqual, Less, Equal, GEqual, Greater, NotEqual, Always
+     - colormask: RGBA, RGB, R, G, B, A, 0
+   Stencil tag fields (all optional, only include if needed):
+     - ref: 0-255, comp: Always/Less/LEqual/Equal/GEqual/Greater/NotEqual/Never
+     - pass/fail/zfail: Keep/Zero/Replace/IncrSat/DecrSat/Invert/IncrWrap/DecrWrap
+     - readmask/writemask: 0-255
 3. Then provide the vertex and fragment blocks for this NEW pass, wrapped in AILab_Block_Start/End tags as usual.
 4. Each pass has its OWN vertex and fragment functions. A typical outline pass needs:
    - A vertex block that extrudes vertices along normals
@@ -101,7 +113,8 @@ TEXTURE & SAMPLER CONVENTIONS:
 
         // ---- System Prompt ----
 
-        public static string BuildSystemPrompt(ShaderDocument doc, string targetContext)
+        public static string BuildSystemPrompt(ShaderDocument doc, string targetContext,
+            System.Collections.Generic.List<Core.ShaderCompileChecker.CompileError> compileErrors = null)
         {
             var sb = new StringBuilder(CoreSystemPrompt);
 
@@ -119,12 +132,31 @@ TEXTURE & SAMPLER CONVENTIONS:
                 if (activePass != null)
                 {
                     sb.AppendLine($"- Active pass: \"{activePass.Name}\" (LightMode={activePass.LightMode})");
+                    sb.AppendLine($"- Pass render state: {FormatRenderState(activePass.RenderState)}");
                     sb.AppendLine($"- Blocks in active pass: {FormatPassBlocks(activePass)}");
                     if (activePass.DataFlow != null)
                     {
                         sb.AppendLine($"- Active Attributes fields: {FormatActiveFields(activePass.DataFlow, DataFlowStage.Attributes)}");
                         sb.AppendLine($"- Active Varyings fields: {FormatActiveFields(activePass.DataFlow, DataFlowStage.Varyings)}");
                     }
+                }
+
+                if (compileErrors != null && compileErrors.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("COMPILE ERRORS IN CURRENT SHADER:");
+                    foreach (var err in compileErrors)
+                    {
+                        sb.Append($"  - Line {err.Line}: {err.Message}");
+                        if (!string.IsNullOrEmpty(err.BlockTitle))
+                            sb.Append($" (in block \"{err.BlockTitle}\")");
+                        sb.AppendLine();
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine("IMPORTANT: The user is likely asking you to fix these compile errors. " +
+                        "Analyze the error messages and the code in the affected blocks. " +
+                        "When fixing, output the corrected code for the affected block(s). " +
+                        "Keep the same function signatures and AILab tags where possible.");
                 }
             }
 
@@ -162,7 +194,8 @@ TEXTURE & SAMPLER CONVENTIONS:
 
         // ---- User Prompt ----
 
-        public static string BuildUserPrompt(string userRequest, ShaderDocument doc, string targetContext)
+        public static string BuildUserPrompt(string userRequest, ShaderDocument doc, string targetContext,
+            System.Collections.Generic.List<Core.ShaderCompileChecker.CompileError> compileErrors = null)
         {
             var sb = new StringBuilder();
 
@@ -178,6 +211,44 @@ TEXTURE & SAMPLER CONVENTIONS:
                     sb.AppendLine("```");
                     sb.AppendLine();
                     sb.AppendLine("MODIFICATION REQUEST:");
+                }
+            }
+
+            if (compileErrors != null && compileErrors.Count > 0)
+            {
+                var errorBlockIds = new System.Collections.Generic.HashSet<string>();
+                foreach (var err in compileErrors)
+                {
+                    if (!string.IsNullOrEmpty(err.BlockId))
+                        errorBlockIds.Add(err.BlockId);
+                }
+
+                if (errorBlockIds.Count > 0 && doc != null)
+                {
+                    sb.AppendLine("CODE IN BLOCKS WITH ERRORS:");
+                    foreach (string blockId in errorBlockIds)
+                    {
+                        var block = doc.FindBlockById(blockId);
+                        if (block == null) continue;
+                        sb.AppendLine($"--- Block: \"{block.Title}\" (Section: {block.Section}) ---");
+                        sb.AppendLine("```hlsl");
+                        sb.AppendLine(block.Code);
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                    }
+                }
+                else if (doc != null && !string.IsNullOrEmpty(doc.RawContent))
+                {
+                    int errorLine = compileErrors[0].Line;
+                    string[] lines = doc.RawContent.Split('\n');
+                    int start = System.Math.Max(0, errorLine - 10);
+                    int end = System.Math.Min(lines.Length - 1, errorLine + 10);
+                    sb.AppendLine($"SHADER CODE AROUND ERROR (lines {start + 1}-{end + 1}):");
+                    sb.AppendLine("```hlsl");
+                    for (int i = start; i <= end; i++)
+                        sb.AppendLine($"/* L{i + 1} */ {lines[i].TrimEnd('\r')}");
+                    sb.AppendLine("```");
+                    sb.AppendLine();
                 }
             }
 
@@ -218,6 +289,9 @@ TEXTURE & SAMPLER CONVENTIONS:
 
         static readonly Regex RePassStateTag = new Regex(
             @"//\s*\[AILab_PassState:\s*(.*?)\]", RegexOptions.Compiled);
+
+        static readonly Regex ReStencilTag = new Regex(
+            @"//\s*\[AILab_Stencil:\s*(.*?)\]", RegexOptions.Compiled);
 
         static readonly Regex ReKV = new Regex(
             @"(\w+)=""([^""]*?)""", RegexOptions.Compiled);
@@ -273,6 +347,9 @@ TEXTURE & SAMPLER CONVENTIONS:
             public string CullOverride;
             public string BlendOverride;
             public string ZWriteOverride;
+            public string ZTestOverride;
+            public string ColorMaskOverride;
+            public StencilState StencilOverride;
         }
 
         /// <summary>
@@ -369,8 +446,34 @@ TEXTURE & SAMPLER CONVENTIONS:
                             case "cull": result.PassInfo.CullOverride = val; break;
                             case "blend": result.PassInfo.BlendOverride = val; break;
                             case "zwrite": result.PassInfo.ZWriteOverride = val; break;
+                            case "ztest": result.PassInfo.ZTestOverride = val; break;
+                            case "colormask": result.PassInfo.ColorMaskOverride = val; break;
                         }
                     }
+                    consumed[i] = true;
+                }
+
+                var stencilMatch = ReStencilTag.Match(lines[i]);
+                if (stencilMatch.Success)
+                {
+                    if (result.PassInfo == null) result.PassInfo = new ParsedPassInfo();
+                    var st = new StencilState();
+                    foreach (Match kv in ReKV.Matches(stencilMatch.Groups[1].Value))
+                    {
+                        string key = kv.Groups[1].Value.ToLowerInvariant();
+                        string val = kv.Groups[2].Value;
+                        switch (key)
+                        {
+                            case "ref":       if (int.TryParse(val, out int r)) st.Ref = r; break;
+                            case "comp":      st.Comp = val; break;
+                            case "pass":      st.Pass = val; break;
+                            case "fail":      st.Fail = val; break;
+                            case "zfail":     st.ZFail = val; break;
+                            case "readmask":  if (int.TryParse(val, out int rm)) st.ReadMask = rm; break;
+                            case "writemask": if (int.TryParse(val, out int wm)) st.WriteMask = wm; break;
+                        }
+                    }
+                    result.PassInfo.StencilOverride = st;
                     consumed[i] = true;
                 }
             }
@@ -589,18 +692,29 @@ RULES:
 3. Only list Varyings fields that need to be ACTIVATED for the requested effect.
 4. If the effect needs texture sampling, include ""uv"" in activate_varyings.
 5. Global uniforms like _Time are always available; do NOT include them in activate_varyings.
-6. Respond in EXACTLY this JSON format, nothing else:
+6. If the user asks about render state settings (depth, stencil, blend, cull, color mask), include a ""render_state"" object.
+   Supported keys: cull (Back/Front/Off), blend (e.g. ""SrcAlpha OneMinusSrcAlpha""), zwrite (On/Off),
+   ztest (LEqual/Less/Equal/GEqual/Greater/NotEqual/Always), colormask (RGBA/RGB/R/G/B/A/0),
+   stencil (object with ref/comp/pass/fail/zfail/readmask/writemask).
+   Only include keys that need to CHANGE. Omit keys that should stay at defaults.
+7. Respond in EXACTLY this JSON format, nothing else:
 
 {
   ""activate_varyings"": [""fieldName1"", ""fieldName2""],
   ""annotations"": {
     ""fieldName1"": ""Brief reason this field is needed"",
     ""fieldName2"": ""Brief reason this field is needed""
+  },
+  ""render_state"": {
+    ""cull"": ""Back"",
+    ""ztest"": ""LEqual"",
+    ""stencil"": { ""ref"": 1, ""comp"": ""Always"", ""pass"": ""Replace"" }
   }
 }
 
 The annotations should explain WHY each field is needed in the context of the user's request.
-Only activate Varyings fields; their Attributes dependencies will be auto-resolved.";
+Only activate Varyings fields; their Attributes dependencies will be auto-resolved.
+The render_state object is OPTIONAL - only include it if the user asks about render settings.";
 
         public static string BuildDataFlowSystemPrompt(ShaderDocument doc)
         {
@@ -612,7 +726,10 @@ Only activate Varyings fields; their Attributes dependencies will be auto-resolv
                 sb.AppendLine();
                 sb.AppendLine($"CURRENT STATE:");
                 if (doc.ActivePass != null)
+                {
                     sb.AppendLine($"- Active pass: \"{doc.ActivePass.Name}\" (LightMode={doc.ActivePass.LightMode})");
+                    sb.AppendLine($"- Pass render state: {FormatRenderState(doc.ActivePass.RenderState)}");
+                }
                 if (dataFlow != null)
                 {
                     sb.AppendLine($"- Active Attributes: {FormatActiveFields(dataFlow, DataFlowStage.Attributes)}");
@@ -628,7 +745,7 @@ Only activate Varyings fields; their Attributes dependencies will be auto-resolv
         }
 
         static readonly Regex ReJsonBlock = new Regex(
-            @"\{[\s\S]*?""activate_varyings""[\s\S]*?\}",
+            @"\{[\s\S]*""activate_varyings""[\s\S]*\}",
             RegexOptions.Compiled);
 
         static readonly Regex ReFieldArray = new Regex(
@@ -643,13 +760,14 @@ Only activate Varyings fields; their Attributes dependencies will be auto-resolv
         /// Parse the LLM's JSON response for Data Flow field activation.
         /// Returns (list of varying field names to activate, dict of annotations).
         /// </summary>
-        public static (List<string> fields, Dictionary<string, string> annotations) ParseDataFlowResponse(string response)
+        public static (List<string> fields, Dictionary<string, string> annotations, PassRenderState renderState) ParseDataFlowResponse(string response)
         {
             var fields = new List<string>();
             var annotations = new Dictionary<string, string>();
+            PassRenderState renderState = null;
 
             if (string.IsNullOrEmpty(response))
-                return (fields, annotations);
+                return (fields, annotations, null);
 
             string json = response;
             var codeMatch = ReCodeBlock.Match(response);
@@ -675,7 +793,50 @@ Only activate Varyings fields; their Attributes dependencies will be auto-resolv
                     annotations[am.Groups[1].Value] = am.Groups[2].Value;
             }
 
-            return (fields, annotations);
+            var rsSection = Regex.Match(json, @"""render_state""\s*:\s*\{([\s\S]*?)\}", RegexOptions.Singleline);
+            if (rsSection.Success)
+            {
+                renderState = new PassRenderState();
+                string rsBody = rsSection.Value;
+
+                var simpleKV = new Regex(@"""(cull|blend|zwrite|ztest|colormask)""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                foreach (Match m in simpleKV.Matches(rsBody))
+                {
+                    switch (m.Groups[1].Value.ToLowerInvariant())
+                    {
+                        case "cull":      renderState.CullMode = m.Groups[2].Value; break;
+                        case "blend":     renderState.BlendMode = m.Groups[2].Value; break;
+                        case "zwrite":    renderState.ZWriteMode = m.Groups[2].Value; break;
+                        case "ztest":     renderState.ZTestMode = m.Groups[2].Value; break;
+                        case "colormask": renderState.ColorMask = m.Groups[2].Value; break;
+                    }
+                }
+
+                var stencilSection = Regex.Match(rsBody, @"""stencil""\s*:\s*\{([\s\S]*?)\}", RegexOptions.Singleline);
+                if (stencilSection.Success)
+                {
+                    var st = new StencilState();
+                    var stKV = new Regex(@"""(\w+)""\s*:\s*(?:""([^""]+)""|(\d+))");
+                    foreach (Match m in stKV.Matches(stencilSection.Groups[1].Value))
+                    {
+                        string key = m.Groups[1].Value.ToLowerInvariant();
+                        string strVal = !string.IsNullOrEmpty(m.Groups[2].Value) ? m.Groups[2].Value : m.Groups[3].Value;
+                        switch (key)
+                        {
+                            case "ref":       if (int.TryParse(strVal, out int r)) st.Ref = r; break;
+                            case "comp":      st.Comp = strVal; break;
+                            case "pass":      st.Pass = strVal; break;
+                            case "fail":      st.Fail = strVal; break;
+                            case "zfail":     st.ZFail = strVal; break;
+                            case "readmask":  if (int.TryParse(strVal, out int rm)) st.ReadMask = rm; break;
+                            case "writemask": if (int.TryParse(strVal, out int wm)) st.WriteMask = wm; break;
+                        }
+                    }
+                    renderState.Stencil = st;
+                }
+            }
+
+            return (fields, annotations, renderState);
         }
 
         // ---- Helpers ----
@@ -721,6 +882,678 @@ Only activate Varyings fields; their Attributes dependencies will be auto-resolv
             foreach (var f in active)
                 sb.Append($"{f.Name}, ");
             return sb.ToString().TrimEnd(',', ' ');
+        }
+
+        static string FormatRenderState(PassRenderState rs)
+        {
+            if (rs == null || !rs.HasOverrides) return "(defaults)";
+            var sb = new StringBuilder();
+            if (!string.IsNullOrEmpty(rs.CullMode)) sb.Append($"Cull={rs.CullMode} ");
+            if (!string.IsNullOrEmpty(rs.BlendMode)) sb.Append($"Blend={rs.BlendMode} ");
+            if (!string.IsNullOrEmpty(rs.ZWriteMode)) sb.Append($"ZWrite={rs.ZWriteMode} ");
+            if (!string.IsNullOrEmpty(rs.ZTestMode)) sb.Append($"ZTest={rs.ZTestMode} ");
+            if (!string.IsNullOrEmpty(rs.ColorMask)) sb.Append($"ColorMask={rs.ColorMask} ");
+            if (rs.Stencil != null && rs.Stencil.HasOverrides)
+                sb.Append($"Stencil(Ref={rs.Stencil.Ref} Comp={rs.Stencil.Comp} Pass={rs.Stencil.Pass}) ");
+            return sb.ToString().Trim();
+        }
+
+        // ---- Material Parameter Adjustment Prompts ----
+
+        public static string BuildMaterialAdjustSystemPrompt()
+        {
+            return @"You are an assistant that adjusts Unity material property values based on natural language instructions.
+
+RULES:
+1. Output ONLY a JSON object mapping property names to their new string values.
+2. For Float/Range properties, output a plain number string like ""0.5"".
+3. For Color properties, output ""(r,g,b,a)"" with values in 0-1 range.
+4. For Vector properties, output ""(x,y,z,w)"".
+5. For Int properties, output a plain integer string like ""2"".
+6. Do NOT include texture properties — they cannot be adjusted via text.
+7. Only include properties whose values you are changing. Omit unchanged properties.
+8. Respect Min/Max ranges for Range properties.
+9. No markdown, no explanation — just the JSON object.
+
+Example output:
+{""_BaseColor"": ""(1,0.9,0.85,1)"", ""_Smoothness"": ""0.6""}";
+        }
+
+        public static string BuildMaterialAdjustUserPrompt(
+            string userRequest,
+            UnityEditor.MaterialProperty[] properties,
+            Dictionary<string, PropertyMeta> metaCache)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("CURRENT MATERIAL PROPERTIES:");
+            sb.AppendLine();
+
+            foreach (var prop in properties)
+            {
+                if ((prop.flags & UnityEditor.MaterialProperty.PropFlags.HideInInspector) != 0)
+                    continue;
+                if (prop.type == UnityEditor.MaterialProperty.PropType.Texture)
+                    continue;
+
+                string display = prop.displayName;
+                string role = "";
+                if (metaCache != null && metaCache.TryGetValue(prop.name, out var meta))
+                {
+                    if (!string.IsNullOrEmpty(meta.DisplayName)) display = meta.DisplayName;
+                    role = meta.Role ?? "";
+                }
+
+                string currentVal = FormatMaterialPropertyValue(prop);
+                string rangeInfo = "";
+                if (prop.type == UnityEditor.MaterialProperty.PropType.Range)
+                    rangeInfo = $" [range: {prop.rangeLimits.x} ~ {prop.rangeLimits.y}]";
+
+                sb.AppendLine($"- {prop.name} (\"{display}\", {prop.type}{rangeInfo}): {currentVal}  role=\"{role}\"");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"USER INSTRUCTION: {userRequest}");
+            sb.AppendLine();
+            sb.AppendLine("Output ONLY the JSON object with changed properties.");
+
+            return sb.ToString();
+        }
+
+        static string FormatMaterialPropertyValue(UnityEditor.MaterialProperty prop)
+        {
+            switch (prop.type)
+            {
+                case UnityEditor.MaterialProperty.PropType.Float:
+                case UnityEditor.MaterialProperty.PropType.Range:
+                    return prop.floatValue.ToString("F3");
+                case UnityEditor.MaterialProperty.PropType.Color:
+                    var c = prop.colorValue;
+                    return $"({c.r:F3},{c.g:F3},{c.b:F3},{c.a:F3})";
+                case UnityEditor.MaterialProperty.PropType.Vector:
+                    var v = prop.vectorValue;
+                    return $"({v.x:F3},{v.y:F3},{v.z:F3},{v.w:F3})";
+#if UNITY_2021_1_OR_NEWER
+                case UnityEditor.MaterialProperty.PropType.Int:
+                    return prop.intValue.ToString();
+#endif
+                default:
+                    return "(unsupported)";
+            }
+        }
+
+        static readonly Regex ReJsonObject = new Regex(
+            @"\{[\s\S]*?\}", RegexOptions.Compiled);
+        static readonly Regex ReJsonKV = new Regex(
+            @"""([^""]+)""\s*:\s*""([^""]+)""", RegexOptions.Compiled);
+
+        public static Dictionary<string, string> ParseMaterialAdjustResponse(string response)
+        {
+            var result = new Dictionary<string, string>();
+            if (string.IsNullOrEmpty(response)) return result;
+
+            var codeMatch = ReCodeBlock.Match(response);
+            string json = codeMatch.Success ? codeMatch.Groups[1].Value : response;
+
+            var objMatch = ReJsonObject.Match(json);
+            if (!objMatch.Success) return result;
+
+            foreach (Match kv in ReJsonKV.Matches(objMatch.Value))
+                result[kv.Groups[1].Value] = kv.Groups[2].Value;
+
+            return result;
+        }
+
+        // ====================================================================
+        //  Plan Prompts
+        // ====================================================================
+
+        const string PlanDecompositionSystemPrompt = @"You are an expert shader technical consultant for Unity URP.
+Your task is to decompose a user's visual effect request into a structured, step-by-step shader development plan.
+
+You MUST return a valid JSON object with the following structure. Output ONLY the JSON, no markdown fences, no explanation text.
+
+The plan must cover these phases (include ALL of them, even if a phase has minimal content):
+
+1. VisualAnalysis - Analyze the key visual characteristics of the requested effect. Identify common implementation techniques. Reference well-known shaders or papers if applicable.
+2. DataFlow - Determine which Attributes (a2v) and Varyings (v2f) fields are needed. Available Attributes: positionOS, normalOS, tangentOS, uv, uv2, color. Available Varyings: positionCS, normalWS, tangentWS, bitangentWS, uv, positionWS, viewDirWS, fogFactor, shadowCoord, vertexColor, screenPos.
+3. Textures - List all textures and resources needed (ramp textures, normal maps, noise textures, etc.). For each, suggest whether the user should provide it, or if it can be procedurally generated in shader, or if an AI image generation model could create it (note: AI generation capability may be limited).
+4. VertexShader - Describe vertex processing steps needed (vertex displacement, normal modification, etc.). If no vertex modification is needed, state that the default vertex transform suffices.
+5. FragmentShader - Break down the fragment shader into logical steps/blocks. Each step should be a self-contained function. This is typically the most detailed phase.
+6. ShaderOptions - Specify render state: Cull mode, Blend mode, ZWrite, ZTest, ColorMask, Stencil settings, RenderQueue, RenderType. Only include non-default values.
+7. MultiPass - If multiple passes are needed (e.g., outline pass, shadow caster, depth-only), describe each additional pass and its purpose. If single pass suffices, state so.
+
+JSON SCHEMA:
+{
+  ""phases"": [
+    {
+      ""type"": ""VisualAnalysis"" | ""DataFlow"" | ""Textures"" | ""VertexShader"" | ""FragmentShader"" | ""ShaderOptions"" | ""MultiPass"",
+      ""title"": ""Short descriptive title"",
+      ""proposal"": ""Detailed analysis and recommendations (can be multiple paragraphs)"",
+      ""question"": ""Optional question to ask the user for clarification (or empty string if none)"",
+      ""items"": [
+        {
+          ""key"": ""unique_identifier"",
+          ""description"": ""Short description"",
+          ""detail"": ""More detail about implementation"",
+          ""category"": ""Optional grouping category""
+        }
+      ]
+    }
+  ]
+}
+
+IMPORTANT RULES:
+- The ""phases"" array MUST contain exactly 7 objects, one for each phase type, in the order listed above.
+- Each phase MUST have at least one item in its ""items"" array.
+- The ""proposal"" should be detailed and actionable, explaining WHY certain choices are made.
+- For FragmentShader phase, break the effect into small, composable function blocks (e.g., ""Base Color Sampling"", ""Normal Mapping"", ""Lighting Calculation"", ""Rim Light"", ""Final Composition"").
+- For DataFlow phase, items should use field names as keys (e.g., ""normalWS"", ""viewDirWS"") with category ""Attributes"" or ""Varyings"".
+- For Textures phase, items should use property names as keys (e.g., ""_RampTex"", ""_NormalMap"") with category indicating source (""User Provided"", ""Procedural"", ""AI Generated"").
+- Ask clarifying questions when the user's request is ambiguous about specific visual details.";
+
+        public static string BuildPlanDecompositionSystemPrompt(ShaderDocument doc)
+        {
+            var sb = new StringBuilder(PlanDecompositionSystemPrompt);
+
+            if (doc != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine();
+                sb.AppendLine("CURRENT SHADER CONTEXT:");
+                sb.AppendLine($"- Shader name: {doc.ShaderName}");
+                sb.AppendLine($"- Existing properties: {FormatProperties(doc)}");
+                sb.AppendLine($"- Render settings: Cull={doc.GlobalSettings.CullMode}, Blend={doc.GlobalSettings.BlendMode}, ZWrite={doc.GlobalSettings.ZWriteMode}");
+                sb.AppendLine($"- Passes: {FormatPasses(doc)}");
+
+                var activePass = doc.ActivePass;
+                if (activePass != null)
+                {
+                    sb.AppendLine($"- Active pass: \"{activePass.Name}\" (LightMode={activePass.LightMode})");
+                    sb.AppendLine($"- Blocks in active pass: {FormatPassBlocks(activePass)}");
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        public static string BuildPlanDecompositionUserPrompt(string userRequest)
+        {
+            return $"USER REQUEST: {userRequest}\n\nDecompose this into a complete shader development plan. Return ONLY the JSON object.";
+        }
+
+        const string PhaseRefinementSystemPrompt = @"You are an expert shader technical consultant for Unity URP.
+The user is refining one phase of a shader development plan based on their feedback.
+
+You must return a valid JSON object representing the UPDATED phase. Output ONLY the JSON, no markdown fences.
+
+JSON SCHEMA (single phase):
+{
+  ""type"": ""<same phase type>"",
+  ""title"": ""<updated or same title>"",
+  ""proposal"": ""<updated analysis incorporating user feedback>"",
+  ""question"": ""<follow-up question if needed, or empty string>"",
+  ""items"": [
+    {
+      ""key"": ""unique_identifier"",
+      ""description"": ""Short description"",
+      ""detail"": ""Implementation detail"",
+      ""category"": ""Optional grouping""
+    }
+  ]
+}
+
+RULES:
+- Incorporate the user's feedback into the proposal and items.
+- Keep items that the user did not object to.
+- Add or remove items based on feedback.
+- If the user answered a question, reflect their answer in the updated proposal.
+- You may ask a new follow-up question if needed.";
+
+        public static string BuildPhaseRefinementSystemPrompt(ShaderPlan plan, PlanPhase phase)
+        {
+            var sb = new StringBuilder(PhaseRefinementSystemPrompt);
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine($"ORIGINAL USER REQUEST: {plan.UserRequest}");
+            sb.AppendLine();
+            sb.AppendLine("FULL PLAN CONTEXT (all phases):");
+
+            foreach (var p in plan.Phases)
+            {
+                string status = p.IsTerminal ? "(confirmed)" : "(pending)";
+                sb.AppendLine($"- {ShaderPlan.GetPhaseTypeLabel(p.Type)} {status}: {Truncate(p.LLMProposal, 200)}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"PHASE BEING REFINED: {phase.Title} ({phase.Type})");
+            sb.AppendLine($"CURRENT PROPOSAL:\n{phase.LLMProposal}");
+
+            if (phase.Items != null && phase.Items.Count > 0)
+            {
+                sb.AppendLine("CURRENT ITEMS:");
+                foreach (var item in phase.Items)
+                    sb.AppendLine($"  - {item.Key}: {item.Description} ({item.Detail})");
+            }
+
+            sb.AppendLine($"REFINEMENT COUNT: {phase.RefinementCount}");
+
+            return sb.ToString();
+        }
+
+        public static string BuildPhaseRefinementUserPrompt(string userFeedback)
+        {
+            return $"USER FEEDBACK: {userFeedback}\n\nUpdate this phase based on the feedback. Return ONLY the updated phase JSON object.";
+        }
+
+        public static string BuildPlanExecutionSystemPrompt(ShaderPlan plan, PlanPhaseType targetPhase, ShaderDocument doc)
+        {
+            var sb = new StringBuilder(CoreSystemPrompt);
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("=== PLAN EXECUTION MODE ===");
+            sb.AppendLine("You are executing a pre-planned shader development step. Generate code that precisely follows the plan.");
+            sb.AppendLine();
+            sb.AppendLine($"ORIGINAL USER REQUEST: {plan.UserRequest}");
+            sb.AppendLine();
+            sb.AppendLine("CONFIRMED PLAN PHASES:");
+
+            foreach (var phase in plan.Phases)
+            {
+                if (!phase.IsTerminal) continue;
+                sb.AppendLine($"\n--- {ShaderPlan.GetPhaseTypeLabel(phase.Type)} ---");
+                sb.AppendLine(phase.LLMProposal);
+                if (phase.Items != null)
+                {
+                    foreach (var item in phase.Items)
+                    {
+                        if (item.IsConfirmed || phase.Status == PhaseStatus.Confirmed)
+                            sb.AppendLine($"  * {item.Key}: {item.Description} - {item.Detail}");
+                    }
+                }
+            }
+
+            sb.AppendLine();
+
+            sb.AppendLine("CRITICAL FRAMEWORK CONSTRAINTS:");
+            sb.AppendLine("- The framework auto-generates vert() and frag() entry points. You MUST NOT generate vert() or frag() functions.");
+            sb.AppendLine("- Vertex blocks: MUST use signature `void FuncName(inout float3 positionOS)` with exactly ONE parameter.");
+            sb.AppendLine("  The framework will call your function with the object-space position. Use input.normalOS for normals via `Attributes input` if needed in the block code, but the function signature MUST be `(inout float3)`.");
+            sb.AppendLine("- Fragment blocks that are helper/utility functions (called by other fragment functions) MUST use `// [AILab_Section: \"Helper Functions\"]` tag.");
+            sb.AppendLine("- Only the FINAL composition fragment function should use `// [AILab_Section: \"Fragment\"]`. This function will be auto-called by the framework.");
+            sb.AppendLine("- The final fragment function MUST have signature `half4 FuncName(Varyings input)` with exactly ONE parameter.");
+            sb.AppendLine("- If you need URP lighting (GetMainLight, Light struct), the framework will auto-detect and add Lighting.hlsl. Just use the API freely.");
+            sb.AppendLine("- Each pass has its own scope. Functions from one pass are NOT visible in another pass.");
+            sb.AppendLine();
+
+            switch (targetPhase)
+            {
+                case PlanPhaseType.VertexShader:
+                    sb.AppendLine("TARGET: Generate the VERTEX shader block(s) for the MAIN pass.");
+                    sb.AppendLine("Each vertex block: `void FuncName(inout float3 positionOS)` — one parameter only.");
+                    sb.AppendLine("Use `// [AILab_Section: \"Vertex\"]` tag.");
+                    break;
+                case PlanPhaseType.FragmentShader:
+                    sb.AppendLine("TARGET: Generate the fragment shader logic for the MAIN pass.");
+                    sb.AppendLine("Structure: helper functions (Section: \"Helper Functions\") + ONE final composition function (Section: \"Fragment\").");
+                    sb.AppendLine("The composition function calls the helpers and returns `half4`.");
+                    sb.AppendLine("Helper functions can have any signature. Only the composition function uses `half4 FuncName(Varyings input)`.");
+                    break;
+                case PlanPhaseType.MultiPass:
+                    sb.AppendLine("TARGET: Generate ADDITIONAL PASSES (NOT the main pass) as described in the MultiPass phase.");
+                    sb.AppendLine("Use `// [AILab_Pass: name=\"...\" lightmode=\"...\"]` tag for each new pass.");
+                    sb.AppendLine("Each pass needs its own vertex + fragment blocks. Follow the same signature rules.");
+                    break;
+                case PlanPhaseType.Textures:
+                    sb.AppendLine("TARGET: Generate AILab_Property declarations for all textures described in the Textures phase.");
+                    sb.AppendLine("Output ONLY the property declarations, no function blocks.");
+                    break;
+            }
+
+            if (doc != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("CURRENT SHADER CONTEXT:");
+                sb.AppendLine($"- Shader name: {doc.ShaderName}");
+                sb.AppendLine($"- Existing properties: {FormatProperties(doc)}");
+                sb.AppendLine($"- Passes: {FormatPasses(doc)}");
+            }
+
+            return sb.ToString();
+        }
+
+        public static string BuildPlanExecutionUserPrompt(ShaderPlan plan, PlanPhaseType targetPhase)
+        {
+            var phase = plan.FindPhaseByType(targetPhase);
+            if (phase == null)
+                return $"Execute the {ShaderPlan.GetPhaseTypeLabel(targetPhase)} phase.\n\nOUTPUT FORMAT: Return ONLY the HLSL code with AILab tags. Wrap in ```hlsl code blocks.";
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Execute the {phase.Title} phase:");
+            sb.AppendLine();
+            sb.AppendLine(phase.LLMProposal);
+            sb.AppendLine();
+
+            if (phase.Items != null && phase.Items.Count > 0)
+            {
+                sb.AppendLine("Required items:");
+                foreach (var item in phase.Items)
+                {
+                    if (item.IsConfirmed || phase.Status == PhaseStatus.Confirmed)
+                        sb.AppendLine($"- {item.Key}: {item.Description} ({item.Detail})");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(phase.UserResponse))
+                sb.AppendLine($"\nUser notes: {phase.UserResponse}");
+
+            sb.AppendLine();
+            sb.AppendLine("OUTPUT FORMAT: Return ONLY the HLSL code with AILab tags. Wrap in ```hlsl code blocks.");
+
+            return sb.ToString();
+        }
+
+        // ---- Combined Main Pass Execution (Vertex + Fragment in one call) ----
+
+        public static string BuildMainPassExecutionSystemPrompt(ShaderPlan plan, ShaderDocument doc)
+        {
+            var sb = new StringBuilder(CoreSystemPrompt);
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("=== MAIN PASS CODE GENERATION ===");
+            sb.AppendLine("Generate the COMPLETE code for the shader's main rendering pass (both vertex and fragment logic) in a SINGLE response.");
+            sb.AppendLine();
+            sb.AppendLine($"ORIGINAL USER REQUEST: {plan.UserRequest}");
+            sb.AppendLine();
+            sb.AppendLine("CONFIRMED PLAN PHASES:");
+
+            foreach (var phase in plan.Phases)
+            {
+                if (!phase.IsTerminal) continue;
+                sb.AppendLine($"\n--- {ShaderPlan.GetPhaseTypeLabel(phase.Type)} ---");
+                sb.AppendLine(phase.LLMProposal);
+                if (phase.Items != null)
+                {
+                    foreach (var item in phase.Items)
+                    {
+                        if (item.IsConfirmed || phase.Status == PhaseStatus.Confirmed)
+                            sb.AppendLine($"  * {item.Key}: {item.Description} - {item.Detail}");
+                    }
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("FRAMEWORK ARCHITECTURE — READ CAREFULLY:");
+            sb.AppendLine();
+            sb.AppendLine("The framework auto-generates vert() and frag() entry points. You MUST NOT generate vert() or frag().");
+            sb.AppendLine("You produce modular BLOCKS that the framework wires together.");
+            sb.AppendLine();
+            sb.AppendLine("BLOCK STRUCTURE for the main pass:");
+            sb.AppendLine("1. ONE vertex block (Section: \"Vertex\"):");
+            sb.AppendLine("   - Signature: `void FuncName(inout float3 positionOS)` — exactly ONE param.");
+            sb.AppendLine("   - The framework passes the object-space position. Modify it for displacement, etc.");
+            sb.AppendLine("   - If no vertex displacement is needed, generate a simple pass-through.");
+            sb.AppendLine();
+            sb.AppendLine("2. Helper functions (Section: \"Helper Functions\"):");
+            sb.AppendLine("   - Any utility/helper functions called by the main fragment function.");
+            sb.AppendLine("   - Can have any signature (e.g., `half CalcShadow(Varyings input)`).");
+            sb.AppendLine("   - These are NOT auto-called by the framework; they are only called by your composition function.");
+            sb.AppendLine();
+            sb.AppendLine("3. ONE final fragment block (Section: \"Fragment\"):");
+            sb.AppendLine("   - Signature: `half4 FuncName(Varyings input)` — exactly ONE param.");
+            sb.AppendLine("   - This is the ONLY function auto-called by the framework's frag().");
+            sb.AppendLine("   - It should call your helper functions and return the final color.");
+            sb.AppendLine();
+            sb.AppendLine("AVAILABLE VARYINGS (from DataFlow):");
+            if (doc?.ActivePass?.DataFlow != null)
+            {
+                foreach (var vf in doc.ActivePass.DataFlow.VaryingFields)
+                {
+                    if (vf.IsActive)
+                        sb.AppendLine($"   - {vf.HLSLType} {vf.Name}");
+                }
+            }
+            sb.AppendLine();
+            sb.AppendLine("IMPORTANT:");
+            sb.AppendLine("- Generate AT MOST 1 Vertex block + a few Helper blocks + 1 Fragment block.");
+            sb.AppendLine("- If you need URP lighting (Light, GetMainLight, etc.), just use the API — the framework auto-adds includes.");
+            sb.AppendLine("- Do NOT generate multiple Fragment-section blocks. Put helpers in Helper Functions section.");
+            sb.AppendLine("- Wrap code in ```hlsl blocks with proper AILab tags.");
+
+            if (doc != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("CURRENT SHADER CONTEXT:");
+                sb.AppendLine($"- Shader name: {doc.ShaderName}");
+                sb.AppendLine($"- Existing properties: {FormatProperties(doc)}");
+                sb.AppendLine($"- Passes: {FormatPasses(doc)}");
+            }
+
+            return sb.ToString();
+        }
+
+        public static string BuildMainPassExecutionUserPrompt(ShaderPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Generate the COMPLETE main pass code (vertex + helpers + fragment) in ONE response.");
+            sb.AppendLine();
+
+            var vertPhase = plan.FindPhaseByType(PlanPhaseType.VertexShader);
+            if (vertPhase != null && vertPhase.Status != PhaseStatus.Skipped)
+            {
+                sb.AppendLine("=== Vertex Requirements ===");
+                sb.AppendLine(vertPhase.LLMProposal);
+                if (vertPhase.Items != null)
+                {
+                    foreach (var item in vertPhase.Items)
+                    {
+                        if (item.IsConfirmed || vertPhase.Status == PhaseStatus.Confirmed)
+                            sb.AppendLine($"- {item.Key}: {item.Description} ({item.Detail})");
+                    }
+                }
+                if (!string.IsNullOrEmpty(vertPhase.UserResponse))
+                    sb.AppendLine($"User notes: {vertPhase.UserResponse}");
+                sb.AppendLine();
+            }
+
+            var fragPhase = plan.FindPhaseByType(PlanPhaseType.FragmentShader);
+            if (fragPhase != null && fragPhase.Status != PhaseStatus.Skipped)
+            {
+                sb.AppendLine("=== Fragment Requirements ===");
+                sb.AppendLine(fragPhase.LLMProposal);
+                if (fragPhase.Items != null)
+                {
+                    foreach (var item in fragPhase.Items)
+                    {
+                        if (item.IsConfirmed || fragPhase.Status == PhaseStatus.Confirmed)
+                            sb.AppendLine($"- {item.Key}: {item.Description} ({item.Detail})");
+                    }
+                }
+                if (!string.IsNullOrEmpty(fragPhase.UserResponse))
+                    sb.AppendLine($"User notes: {fragPhase.UserResponse}");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("OUTPUT: Return 1 Vertex block + Helper blocks + 1 Fragment block. Use ```hlsl with AILab tags.");
+
+            return sb.ToString();
+        }
+
+        // ---- Plan Response Parsing ----
+
+        public static List<PlanPhase> ParsePlanDecompositionResponse(string response)
+        {
+            var phases = new List<PlanPhase>();
+            if (string.IsNullOrEmpty(response)) return phases;
+
+            string json = ExtractJsonFromResponse(response);
+            if (string.IsNullOrEmpty(json)) return phases;
+
+            var phasesArrayMatch = Regex.Match(json,
+                @"""phases""\s*:\s*\[([\s\S]*)\]",
+                RegexOptions.Singleline);
+            if (!phasesArrayMatch.Success) return phases;
+
+            string phasesBody = phasesArrayMatch.Groups[1].Value;
+            var phaseBlocks = SplitJsonArrayElements(phasesBody);
+
+            foreach (string phaseJson in phaseBlocks)
+            {
+                var phase = ParseSinglePhaseJson(phaseJson);
+                if (phase != null)
+                    phases.Add(phase);
+            }
+
+            return phases;
+        }
+
+        public static PlanPhase ParsePhaseRefinementResponse(string response)
+        {
+            if (string.IsNullOrEmpty(response)) return null;
+            string json = ExtractJsonFromResponse(response);
+            if (string.IsNullOrEmpty(json)) return null;
+            return ParseSinglePhaseJson(json);
+        }
+
+        static PlanPhase ParseSinglePhaseJson(string json)
+        {
+            var phase = new PlanPhase();
+            phase.Status = PhaseStatus.WaitingForUser;
+
+            var typeMatch = Regex.Match(json, @"""type""\s*:\s*""([^""]+)""");
+            if (typeMatch.Success)
+                phase.Type = ParsePhaseType(typeMatch.Groups[1].Value);
+
+            var titleMatch = Regex.Match(json, @"""title""\s*:\s*""([^""]+)""");
+            if (titleMatch.Success)
+                phase.Title = titleMatch.Groups[1].Value;
+            else
+                phase.Title = ShaderPlan.GetPhaseTypeLabel(phase.Type);
+
+            var proposalMatch = Regex.Match(json, @"""proposal""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (proposalMatch.Success)
+                phase.LLMProposal = UnescapeJsonString(proposalMatch.Groups[1].Value);
+
+            var questionMatch = Regex.Match(json, @"""question""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (questionMatch.Success)
+            {
+                string q = UnescapeJsonString(questionMatch.Groups[1].Value).Trim();
+                if (!string.IsNullOrEmpty(q))
+                    phase.LLMQuestion = q;
+            }
+
+            var itemsMatch = Regex.Match(json, @"""items""\s*:\s*\[([\s\S]*?)\]", RegexOptions.Singleline);
+            if (itemsMatch.Success)
+            {
+                var itemBlocks = SplitJsonArrayElements(itemsMatch.Groups[1].Value);
+                foreach (string itemJson in itemBlocks)
+                {
+                    var item = ParseSingleItemJson(itemJson);
+                    if (item != null)
+                        phase.Items.Add(item);
+                }
+            }
+
+            return phase;
+        }
+
+        static PlanItem ParseSingleItemJson(string json)
+        {
+            var item = new PlanItem();
+
+            var keyMatch = Regex.Match(json, @"""key""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (keyMatch.Success)
+                item.Key = UnescapeJsonString(keyMatch.Groups[1].Value);
+
+            var descMatch = Regex.Match(json, @"""description""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (descMatch.Success)
+                item.Description = UnescapeJsonString(descMatch.Groups[1].Value);
+
+            var detailMatch = Regex.Match(json, @"""detail""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (detailMatch.Success)
+                item.Detail = UnescapeJsonString(detailMatch.Groups[1].Value);
+
+            var catMatch = Regex.Match(json, @"""category""\s*:\s*""((?:[^""\\]|\\.)*)""");
+            if (catMatch.Success)
+                item.Category = UnescapeJsonString(catMatch.Groups[1].Value);
+
+            if (string.IsNullOrEmpty(item.Key) && string.IsNullOrEmpty(item.Description))
+                return null;
+
+            return item;
+        }
+
+        static string ExtractJsonFromResponse(string response)
+        {
+            var codeMatch = ReCodeBlock.Match(response);
+            string text = codeMatch.Success ? codeMatch.Groups[1].Value : response;
+
+            int firstBrace = text.IndexOf('{');
+            int lastBrace = text.LastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace)
+                return text.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+            return text;
+        }
+
+        static List<string> SplitJsonArrayElements(string arrayBody)
+        {
+            var elements = new List<string>();
+            int depth = 0;
+            int start = -1;
+
+            for (int i = 0; i < arrayBody.Length; i++)
+            {
+                char c = arrayBody[i];
+                if (c == '{')
+                {
+                    if (depth == 0) start = i;
+                    depth++;
+                }
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0 && start >= 0)
+                    {
+                        elements.Add(arrayBody.Substring(start, i - start + 1));
+                        start = -1;
+                    }
+                }
+            }
+
+            return elements;
+        }
+
+        static PlanPhaseType ParsePhaseType(string raw)
+        {
+            switch (raw)
+            {
+                case "VisualAnalysis": return PlanPhaseType.VisualAnalysis;
+                case "DataFlow":      return PlanPhaseType.DataFlow;
+                case "Textures":      return PlanPhaseType.Textures;
+                case "VertexShader":   return PlanPhaseType.VertexShader;
+                case "FragmentShader": return PlanPhaseType.FragmentShader;
+                case "ShaderOptions":  return PlanPhaseType.ShaderOptions;
+                case "MultiPass":      return PlanPhaseType.MultiPass;
+                default:               return PlanPhaseType.VisualAnalysis;
+            }
+        }
+
+        static string UnescapeJsonString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Replace("\\n", "\n")
+                    .Replace("\\t", "\t")
+                    .Replace("\\\"", "\"")
+                    .Replace("\\\\", "\\");
+        }
+
+        static string Truncate(string text, int maxLen)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return text.Length <= maxLen ? text : text.Substring(0, maxLen) + "...";
         }
     }
 }

@@ -15,6 +15,8 @@
         <ui:VisualElement name="tabBar" class="tab-bar">
             <ui:Button name="tabNLBlocks" text="Natural Language Blocks" class="tab-btn tab-btn--active" />
             <ui:Button name="tabDataFlow" text="Data Flow" class="tab-btn" />
+            <ui:Button name="tabPlan" text="Plan" class="tab-btn" />
+            <ui:Button name="tabHistory" text="History" class="tab-btn" />
         </ui:VisualElement>
 
         <!-- Pass Bar -->
@@ -63,6 +65,12 @@
 
         <!-- Data Flow content (hidden by default, shown when Data Flow tab is active) -->
         <ui:VisualElement name="dataFlowContent" class="data-flow-content" style="display:none;" />
+
+        <!-- Plan content (hidden by default, shown when Plan tab is active) -->
+        <ui:VisualElement name="planContent" class="plan-content" style="display:none;" />
+
+        <!-- History content (hidden by default, shown when History tab is active) -->
+        <ui:VisualElement name="historyContent" class="history-content" style="display:none;" />
 
         <!-- Bottom panel: natural language prompt input -->
         <ui:VisualElement name="promptPanel" class="prompt-panel">
