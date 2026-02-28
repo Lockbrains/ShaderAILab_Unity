@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 348c6ec0fa48b554a994e081aee5ab3b, type: 3}
+  m_Name: LLMSettings
+  m_EditorClassIdentifier: 
+  ActiveProvider: 2
+  ActiveModel: gemini-3.1-pro-preview
+  Temperature: 1
+  MaxTokens: 32768
+  OpenAIBaseUrl: https://api.openai.com/v1
+  AnthropicBaseUrl: https://api.anthropic.com/v1
+  GeminiBaseUrl: https://generativelanguage.googleapis.com/v1beta
+  OllamaBaseUrl: http://localhost:11434

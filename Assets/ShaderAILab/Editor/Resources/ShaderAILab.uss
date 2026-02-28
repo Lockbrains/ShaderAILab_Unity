@@ -1,0 +1,624 @@
+.root {
+    flex-grow: 1;
+    flex-direction: column;
+    background-color: #1e1e1e;
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+    flex-direction: row;
+    align-items: center;
+    height: 32px;
+    padding: 2px 8px;
+    background-color: #2d2d2d;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+}
+
+.toolbar-title {
+    font-size: 13px;
+    color: #e0e0e0;
+    -unity-font-style: bold;
+    margin-right: 16px;
+}
+
+.toolbar-btn {
+    height: 24px;
+    margin: 0 2px;
+    padding: 0 10px;
+    font-size: 11px;
+    border-radius: 3px;
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border-width: 0;
+}
+
+.toolbar-btn:hover {
+    background-color: #505050;
+}
+
+/* ---- Tab Bar ---- */
+.tab-bar {
+    flex-direction: row;
+    height: 30px;
+    background-color: #252525;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+    padding-left: 8px;
+}
+
+.tab-btn {
+    height: 30px;
+    padding: 0 16px;
+    font-size: 12px;
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-bottom-color: rgba(0,0,0,0);
+    border-radius: 0;
+    background-color: rgba(0,0,0,0);
+    color: #808080;
+    margin-right: 4px;
+}
+
+.tab-btn:hover {
+    color: #cccccc;
+    background-color: #2a2a2a;
+}
+
+.tab-btn--active {
+    color: #e0e0e0;
+    border-bottom-color: #0e639c;
+    -unity-font-style: bold;
+}
+
+/* ---- Data Flow Content ---- */
+.data-flow-content {
+    flex-grow: 1;
+    background-color: #1a1a1a;
+}
+
+/* ---- Main Content ---- */
+.main-content {
+    flex-grow: 1;
+    flex-direction: row;
+}
+
+.panel {
+    flex-direction: column;
+    border-right-width: 1px;
+    border-right-color: #3c3c3c;
+}
+
+.panel-header {
+    font-size: 12px;
+    color: #a0a0a0;
+    -unity-font-style: bold;
+    padding: 6px 10px;
+    background-color: #252525;
+    border-bottom-width: 1px;
+    border-bottom-color: #3c3c3c;
+}
+
+/* ---- Left Panel (Block List) ---- */
+.left-panel {
+    width: 280px;
+    min-width: 200px;
+}
+
+.block-list-container {
+    flex-grow: 1;
+}
+
+.add-block-btn {
+    height: 28px;
+    margin: 4px 8px;
+    background-color: #2a5a2a;
+    color: #b0e0b0;
+    border-width: 0;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.add-block-btn:hover {
+    background-color: #3a7a3a;
+}
+
+/* Block items */
+.block-item {
+    flex-direction: column;
+    padding: 8px 10px;
+    border-bottom-width: 1px;
+    border-bottom-color: #2a2a2a;
+    background-color: #1e1e1e;
+}
+
+.block-item:hover {
+    background-color: #2a2a2a;
+}
+
+.block-item--selected {
+    background-color: #264f78;
+    border-left-width: 3px;
+    border-left-color: #569cd6;
+}
+
+.block-item__title {
+    font-size: 12px;
+    color: #e0e0e0;
+    -unity-font-style: bold;
+}
+
+.block-item__intent {
+    font-size: 10px;
+    color: #808080;
+    margin-top: 2px;
+    white-space: normal;
+}
+
+.block-item__section-badge {
+    font-size: 9px;
+    color: #569cd6;
+    background-color: #1a3a5c;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-top: 4px;
+    align-self: flex-start;
+}
+
+.block-item__actions {
+    flex-direction: row;
+    margin-top: 4px;
+}
+
+.block-item__action-btn {
+    font-size: 10px;
+    height: 18px;
+    padding: 0 6px;
+    margin-right: 4px;
+    background-color: #3c3c3c;
+    color: #999;
+    border-width: 0;
+    border-radius: 2px;
+}
+
+/* ---- Center Panel (Code Editor) ---- */
+.center-panel {
+    flex-grow: 1;
+    min-width: 300px;
+    position: relative;
+}
+
+.code-editor-container {
+    flex-grow: 1;
+    background-color: #1a1a1a;
+}
+
+/* Line numbers gutter */
+.code-line-numbers {
+    width: 44px;
+    min-width: 44px;
+    padding: 8px 6px 8px 0;
+    font-size: 12px;
+    -unity-font-style: normal;
+    color: #606060;
+    background-color: #1a1a1a;
+    border-right-width: 1px;
+    border-right-color: #2a2a2a;
+    -unity-text-align: upper-right;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* Container holding both highlight overlay and text input */
+.code-editor-area {
+    flex-grow: 1;
+    position: relative;
+    background-color: #1a1a1a;
+}
+
+/* Highlighted text overlay -- paints colored text underneath the editor.
+   position:absolute overlays the same area as the editor area. */
+.code-highlight-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 8px;
+    font-size: 12px;
+    -unity-font-style: normal;
+    color: #d4d4d4;
+    background-color: rgba(0,0,0,0);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* The actual editable TextField -- all text and backgrounds transparent
+   so the highlight label shows through. Only the caret is visible. */
+.code-editor-input {
+    flex-grow: 1;
+    font-size: 12px;
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    padding: 0;
+    white-space: nowrap;
+    color: rgba(0,0,0,0);
+}
+
+.code-editor-input > .unity-base-field__input {
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+}
+
+.code-editor-input .unity-text-field__input {
+    flex-grow: 1;
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    color: rgba(0,0,0,0);
+    -unity-font-style: normal;
+    white-space: nowrap;
+    padding: 8px;
+    --unity-cursor-color: #aeafad;
+}
+
+.code-editor-input .unity-text-element {
+    background-color: rgba(0,0,0,0);
+    color: rgba(0,0,0,0);
+}
+
+/* Legacy class kept for UXML compatibility -- the TextField starts with this
+   class from UXML; we override it so it doesn't set an opaque background. */
+.code-editor {
+    flex-grow: 1;
+    font-size: 12px;
+    color: rgba(0,0,0,0);
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    padding: 0;
+    white-space: nowrap;
+}
+
+.code-editor .unity-text-field__input {
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    color: rgba(0,0,0,0);
+    --unity-cursor-color: #aeafad;
+}
+
+.code-editor-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    padding: 4px 8px;
+    background-color: #252525;
+    border-top-width: 1px;
+    border-top-color: #3c3c3c;
+}
+
+.action-btn {
+    height: 24px;
+    padding: 0 12px;
+    margin-left: 6px;
+    font-size: 11px;
+    border-radius: 3px;
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border-width: 0;
+}
+
+.action-btn:hover {
+    background-color: #505050;
+}
+
+.action-btn.primary {
+    background-color: #0e639c;
+    color: #ffffff;
+}
+
+.action-btn.primary:hover {
+    background-color: #1177bb;
+}
+
+.compile-btn {
+    background-color: #2a5a2a;
+    color: #b0e0b0;
+    margin-right: auto;
+}
+
+.compile-btn:hover {
+    background-color: #3a7a3a;
+}
+
+/* ---- Right Panel (Parameters + Preview) ---- */
+.right-panel {
+    width: 260px;
+    min-width: 200px;
+    border-right-width: 0;
+}
+
+.parameter-container {
+    flex-grow: 1;
+    padding: 4px;
+}
+
+.preview-section {
+    height: 260px;
+    border-top-width: 1px;
+    border-top-color: #3c3c3c;
+}
+
+.preview-imgui {
+    flex-grow: 1;
+    min-height: 200px;
+}
+
+/* ---- Parameter Items ---- */
+.param-item {
+    flex-direction: column;
+    padding: 4px 8px;
+    margin-bottom: 2px;
+}
+
+.param-item__label {
+    font-size: 11px;
+    color: #b0b0b0;
+    margin-bottom: 2px;
+}
+
+.param-item__slider-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.param-item__slider {
+    flex-grow: 1;
+}
+
+.param-item__value {
+    width: 50px;
+    margin-left: 4px;
+    font-size: 11px;
+}
+
+/* ---- Prompt Panel ---- */
+.prompt-panel {
+    flex-shrink: 0;
+    padding: 8px 10px;
+    background-color: #252525;
+    border-top-width: 2px;
+    border-top-color: #0e639c;
+    min-height: 110px;
+}
+
+.prompt-target-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.prompt-label {
+    font-size: 11px;
+    color: #a0a0a0;
+    -unity-font-style: bold;
+    margin-right: 8px;
+    width: 50px;
+}
+
+.prompt-target-dropdown {
+    flex-grow: 1;
+    max-width: 300px;
+}
+
+.prompt-input-row {
+    flex-direction: row;
+    align-items: stretch;
+    flex-shrink: 0;
+    min-height: 50px;
+}
+
+.prompt-input {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 50px;
+    font-size: 12px;
+    background-color: #1a1a1a;
+    color: #d4d4d4;
+    border-width: 1px;
+    border-color: #3c3c3c;
+    border-radius: 4px;
+    padding: 6px 8px;
+    overflow: hidden;
+}
+
+.prompt-input .unity-text-field__input {
+    background-color: #1a1a1a;
+    border-width: 0;
+    color: #d4d4d4;
+    white-space: normal;
+    min-height: 44px;
+}
+
+.generate-btn {
+    flex-shrink: 0;
+    height: 50px;
+    width: 90px;
+    min-width: 90px;
+    margin-left: 8px;
+    font-size: 13px;
+    -unity-font-style: bold;
+}
+
+.prompt-status {
+    font-size: 10px;
+    color: #808080;
+    margin-top: 4px;
+    flex-shrink: 0;
+}
+
+/* ---- Autocomplete Popup ---- */
+.autocomplete-popup {
+    position: absolute;
+    min-width: 260px;
+    max-width: 400px;
+    max-height: 220px;
+    background-color: #252526;
+    border-width: 1px;
+    border-color: #454545;
+    border-radius: 4px;
+    padding: 2px 0;
+    overflow: hidden;
+}
+
+.autocomplete-item {
+    flex-direction: row;
+    align-items: center;
+    padding: 3px 8px;
+    height: 22px;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item--selected {
+    background-color: #094771;
+}
+
+.autocomplete-item__icon {
+    width: 16px;
+    font-size: 10px;
+    color: #569cd6;
+    margin-right: 6px;
+    -unity-text-align: middle-center;
+}
+
+.autocomplete-item__name {
+    flex-grow: 1;
+    font-size: 12px;
+    color: #d4d4d4;
+}
+
+.autocomplete-item__type {
+    font-size: 10px;
+    color: #808080;
+    margin-left: 8px;
+}
+
+/* ---- Inline LLM Popup ---- */
+.inline-llm-popup {
+    position: absolute;
+    width: 450px;
+    padding: 0;
+    background-color: rgba(0,0,0,0);
+}
+
+.inline-llm-gradient {
+    border-width: 2px;
+    border-radius: 8px;
+    border-color: #7c4dff;
+    padding: 2px;
+    background-color: rgba(0,0,0,0);
+}
+
+.inline-llm-inner {
+    background-color: #1a1a2e;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.inline-llm-popup__input {
+    flex-grow: 1;
+    font-size: 12px;
+    min-height: 28px;
+    background-color: #252540;
+    color: #d4d4d4;
+    border-width: 1px;
+    border-color: #3a3a5c;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+.inline-llm-popup__input .unity-text-field__input {
+    background-color: #252540;
+    border-width: 0;
+    color: #d4d4d4;
+    min-height: 22px;
+}
+
+.inline-llm-popup__status {
+    font-size: 10px;
+    color: #808080;
+    margin-top: 4px;
+}
+
+.inline-llm-popup__row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.inline-llm-popup__btn {
+    height: 28px;
+    width: 32px;
+    margin-left: 6px;
+    padding: 0;
+    font-size: 14px;
+    background-color: #7c4dff;
+    color: #ffffff;
+    border-width: 0;
+    border-radius: 4px;
+}
+
+.inline-llm-popup__btn:hover {
+    background-color: #9c6eff;
+}
+
+/* ---- Promote to Property Popup ---- */
+.promote-popup {
+    position: absolute;
+    width: 320px;
+    background-color: #1e1e1e;
+    border-width: 1px;
+    border-color: #0e639c;
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.promote-popup__row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.promote-popup__label {
+    width: 90px;
+    font-size: 11px;
+    color: #a0a0a0;
+}
+
+.promote-popup__field {
+    flex-grow: 1;
+    font-size: 11px;
+}
+
+.promote-popup__actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+/* ---- Helper block badge color ---- */
+.block-item__section-badge--helper {
+    color: #c586c0;
+    background-color: #3a1a3c;
+}
+
+/* ---- Disabled block styling ---- */
+.block-item--disabled {
+    opacity: 0.45;
+}
+
+.block-item--disabled .block-item__title {
+    -unity-font-style: italic;
+}
+
+.block-item__action-btn--disabled {
+    background-color: #5a3a3a;
+    color: #e08080;
+}

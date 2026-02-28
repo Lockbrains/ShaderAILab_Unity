@@ -1,0 +1,75 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:VisualElement name="root" class="root">
+
+        <!-- Toolbar -->
+        <ui:VisualElement name="toolbar" class="toolbar">
+            <ui:Label name="shaderNameLabel" text="Shader AILab" class="toolbar-title" />
+            <ui:Button name="btnOpen" text="Open Shader" class="toolbar-btn" />
+            <ui:Button name="btnSave" text="Save" class="toolbar-btn" />
+            <ui:Button name="btnNewFromTemplate" text="New from Template" class="toolbar-btn" />
+            <ui:Button name="btnOpenInVSCode" text="Open in VSCode" class="toolbar-btn" />
+            <ui:Button name="btnSettings" text="LLM Settings" class="toolbar-btn" />
+        </ui:VisualElement>
+
+        <!-- Tab Bar -->
+        <ui:VisualElement name="tabBar" class="tab-bar">
+            <ui:Button name="tabNLBlocks" text="Natural Language Blocks" class="tab-btn tab-btn--active" />
+            <ui:Button name="tabDataFlow" text="Data Flow" class="tab-btn" />
+        </ui:VisualElement>
+
+        <!-- Main content area: 3-column layout -->
+        <ui:VisualElement name="mainContent" class="main-content">
+
+            <!-- Left panel: block list -->
+            <ui:VisualElement name="leftPanel" class="panel left-panel">
+                <ui:Label text="Natural Language Blocks" class="panel-header" />
+                <ui:ScrollView name="blockListContainer" class="block-list-container" />
+                <ui:Button name="btnAddBlock" text="+ Add Block" class="add-block-btn" />
+            </ui:VisualElement>
+
+            <!-- Center panel: code editor -->
+            <ui:VisualElement name="centerPanel" class="panel center-panel">
+                <ui:Label name="codeEditorHeader" text="Code View" class="panel-header" />
+                <ui:ScrollView name="codeEditorContainer" class="code-editor-container">
+                    <ui:TextField name="codeEditor" multiline="true" class="code-editor" />
+                </ui:ScrollView>
+                <ui:VisualElement name="codeEditorActions" class="code-editor-actions">
+                    <ui:Button name="btnCompile" text="Compile" class="action-btn compile-btn" />
+                    <ui:Button name="btnApplyCode" text="Apply Changes" class="action-btn primary" />
+                    <ui:Button name="btnRevertCode" text="Revert" class="action-btn" />
+                </ui:VisualElement>
+                <!-- Floating containers for popups (autocomplete, inline LLM) -->
+                <ui:VisualElement name="popupLayer" style="position:absolute; top:0; left:0; right:0; bottom:0;" />
+            </ui:VisualElement>
+
+            <!-- Right panel: parameters + preview -->
+            <ui:VisualElement name="rightPanel" class="panel right-panel">
+                <ui:Label text="Parameters" class="panel-header" />
+                <ui:ScrollView name="parameterContainer" class="parameter-container" />
+
+                <ui:VisualElement name="previewSection" class="preview-section">
+                    <ui:Label text="Preview" class="panel-header" />
+                    <ui:IMGUIContainer name="previewContainer" class="preview-imgui" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Data Flow content (hidden by default, shown when Data Flow tab is active) -->
+        <ui:VisualElement name="dataFlowContent" class="data-flow-content" style="display:none;" />
+
+        <!-- Bottom panel: natural language prompt input -->
+        <ui:VisualElement name="promptPanel" class="prompt-panel">
+            <ui:VisualElement name="promptTargetRow" class="prompt-target-row">
+                <ui:Label text="AI Prompt" class="prompt-label" />
+                <ui:DropdownField name="promptTarget" class="prompt-target-dropdown" />
+            </ui:VisualElement>
+            <ui:VisualElement name="promptInputRow" class="prompt-input-row">
+                <ui:TextField name="promptInput" multiline="true" class="prompt-input"
+                    value="Describe what you want in natural language... (Ctrl+Enter to send)" />
+                <ui:Button name="btnSendPrompt" text="Generate" class="action-btn primary generate-btn" />
+            </ui:VisualElement>
+            <ui:Label name="promptStatus" text="" class="prompt-status" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>
