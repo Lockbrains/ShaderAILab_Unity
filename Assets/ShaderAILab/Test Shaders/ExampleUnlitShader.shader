@@ -22,6 +22,16 @@ Shader "AILab/ExampleUnlitShader" {
         _HatchTex("Hatching Texture", 2D) = "white" {}
         // [AILab_Property: name="_HatchScale" display="Hatching Scale" type="Range" default="10.0" min="1" max="50"]
         _HatchScale("Hatching Scale", Range(1, 50)) = 10.0
+        // [AILab_Property: name="_ScreenHatchParams" display="屏幕空间浅阴影排线参数 (Screen Space Hatching)" type="Texture2D" default="" defaultTex="white"]
+        _ScreenHatchParams("屏幕空间浅阴影排线参数 (Screen Space Hatching)", 2D) = "white" {}
+        // [AILab_Property: name="_ScreenCrossHatchParams" display="屏幕空间深阴影交叉排线 (Screen Space Cross-Hatching)" type="Texture2D" default="" defaultTex="white"]
+        _ScreenCrossHatchParams("屏幕空间深阴影交叉排线 (Screen Space Cross-Hatching)", 2D) = "white" {}
+        // [AILab_Property: name="_LightingThresholds" display="光照阶梯化阈值 (Procedural Ramp Thresholds)" type="Texture2D" default="" defaultTex="white"]
+        _LightingThresholds("光照阶梯化阈值 (Procedural Ramp Thresholds)", 2D) = "white" {}
+        // [AILab_Property: name="_ShadowSmoothing" display="Shadow Smoothing" type="Range" default="0.05" min="0.001" max="0.5"]
+        _ShadowSmoothing("Shadow Smoothing", Range(0.001, 0.5)) = 0.05
+        // [AILab_Property: name="_DeepShadowThreshold" display="Deep Shadow Threshold" type="Range" default="0.1" min="0" max="1"]
+        _DeepShadowThreshold("Deep Shadow Threshold", Range(0, 1)) = 0.1
     }
     SubShader {
         // [AILab_Global: cull="Back" blend="Off" zwrite="On"]
@@ -48,6 +58,9 @@ Shader "AILab/ExampleUnlitShader" {
             TEXTURE2D(_Hatching_Layer2); SAMPLER(sampler_Hatching_Layer2);
             TEXTURE2D(_ShadowDepthThresholds); SAMPLER(sampler_ShadowDepthThresholds);
             TEXTURE2D(_HatchTex); SAMPLER(sampler_HatchTex);
+            TEXTURE2D(_ScreenHatchParams); SAMPLER(sampler_ScreenHatchParams);
+            TEXTURE2D(_ScreenCrossHatchParams); SAMPLER(sampler_ScreenCrossHatchParams);
+            TEXTURE2D(_LightingThresholds); SAMPLER(sampler_LightingThresholds);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseColor;
@@ -61,6 +74,11 @@ Shader "AILab/ExampleUnlitShader" {
                 float _ShadowThreshold;
                 float4 _HatchTex_ST;
                 float _HatchScale;
+                float4 _ScreenHatchParams_ST;
+                float4 _ScreenCrossHatchParams_ST;
+                float4 _LightingThresholds_ST;
+                float _ShadowSmoothing;
+                float _DeepShadowThreshold;
             CBUFFER_END
 
             struct Attributes {
@@ -73,116 +91,120 @@ Shader "AILab/ExampleUnlitShader" {
                 float4 positionCS  : SV_POSITION;
                 float3 normalWS    : TEXCOORD0;
                 float2 uv          : TEXCOORD1;
-                float fogFactor    : TEXCOORD2;
-                float4 screenPos   : TEXCOORD3;
+                float3 positionWS  : TEXCOORD2;
+                float fogFactor    : TEXCOORD3;
+                float4 screenPos   : TEXCOORD4;
             };
 
-            // [AILab_Section: "Vertex"]
-            // [AILab_Block_Start: "Base Transform"]
-            // [AILab_Intent: "Pass-through for base geometry; standard MVP, normalWS, and screenPos are auto-handled by the framework"]
-            void BaseTransform(inout float3 posOS) {
-                // No vertex displacement needed for the base pass.
-                // The framework will automatically transform posOS to positionCS
-                // and compute normalWS and screenPos as required by the fragment shader.
+            // [AILab_Section: "Helper Functions"]
+            // [AILab_Block_Start: "Moebius Stylized Shading"]
+            // [AILab_Intent: "Evaluate stepped lighting and apply screen-space procedural hatching based on shadow intensity"]
+            // [AILab_Param: "_ShadowThreshold" role="parameter"]
+            // [AILab_Param: "_ShadowSmoothing" role="parameter"]
+            // [AILab_Param: "_DeepShadowThreshold" role="parameter"]
+            // [AILab_Param: "_HatchScale" role="parameter"]
+            // [AILab_Param: "_Hatching_Layer1" role="parameter"]
+            // [AILab_Param: "_Hatching_Layer2" role="parameter"]
+            half3 ApplyMoebiusShading(Varyings input, half3 albedo) {
+                // 1. Get URP Main Light & Real-time Shadow
+                float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
+                Light mainLight = GetMainLight(shadowCoord);
+                
+                // 2. Calculate Diffuse Intensity
+                half NdotL = saturate(dot(normalize(input.normalWS), mainLight.direction));
+                half attenuation = mainLight.shadowAttenuation * mainLight.distanceAttenuation;
+                half diffuseIntensity = NdotL * attenuation;
+                
+                // 3. Stepped Lighting Masks (Binary/Tertiary Masking)
+                half lightMask = smoothstep(_ShadowThreshold - _ShadowSmoothing, _ShadowThreshold + _ShadowSmoothing, diffuseIntensity);
+                half darkMask = smoothstep(_DeepShadowThreshold - _ShadowSmoothing, _DeepShadowThreshold + _ShadowSmoothing, diffuseIntensity);
+                
+                // 4. Screen-Space UV Calculation (Aspect Ratio Corrected)
+                float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 0.001);
+                screenUV.x *= _ScreenParams.x / _ScreenParams.y;
+                screenUV *= _HatchScale * 10.0; // Scaled to reasonable stroke density
+                
+                // 5. Sample Hatching Textures
+                half hatch1 = SAMPLE_TEXTURE2D(_Hatching_Layer1, sampler_Hatching_Layer1, screenUV).r;
+                half hatch2 = SAMPLE_TEXTURE2D(_Hatching_Layer2, sampler_Hatching_Layer2, screenUV).r;
+                
+                // 6. Combine Cross-Hatching based on Shadow Depth
+                // Darkest regions get cross-hatching (Layer1 * Layer2)
+                // Mid-shadows get single hatching (Layer1)
+                // Light regions get no hatching (1.0)
+                half midHatch = hatch1;
+                half deepHatch = hatch1 * hatch2;
+                
+                half hatchIntensity = lerp(deepHatch, midHatch, darkMask);
+                hatchIntensity = lerp(hatchIntensity, 1.0, lightMask);
+                
+                // 7. Base Color Cel Shading
+                half3 lightColor = albedo * mainLight.color;
+                half3 shadowColor = albedo * mainLight.color * 0.5; // Tint albedo for unlit regions
+                half3 celShadedColor = lerp(shadowColor, lightColor, lightMask);
+                
+                // 8. Multiply Inked Hatching to the Shaded Color
+                return celShadedColor * hatchIntensity;
             }
             // [AILab_Block_End]
 
-            // [AILab_Block_Start: "Outline Displacement"]
-            // [AILab_Intent: "Extrude vertices outwards along their normal to create an inverted hull outline"]
-            // [AILab_Param: "_OutlineWidth" role="parameter"]
-            void ExtrudeOutline(inout float3 posOS) {
-                // Normalize position as a fast approximation for normalOS to expand the mesh outwards.
-                // This creates the constant-width outline shell when front faces are culled.
-                float3 normalOS = normalize(posOS);
-                posOS += normalOS * _OutlineWidth;
+            // [AILab_Section: "Vertex"]
+            // [AILab_Block_Start: "Main Vertex"]
+            // [AILab_Intent: "Pass-through for vertex position, standard transform handled by framework"]
+            void MainVertex(inout float3 posOS) {
+                // No specific vertex displacement needed for the main stylized pass
             }
             // [AILab_Block_End]
 
             Varyings vert(Attributes input) {
                 Varyings output = (Varyings)0;
                 float3 posOS = input.positionOS.xyz;
-                BaseTransform(posOS);
-                ExtrudeOutline(posOS);
+                MainVertex(posOS);
                 VertexPositionInputs vpi = GetVertexPositionInputs(posOS);
                 VertexNormalInputs vni = GetVertexNormalInputs(input.normalOS);
                 output.positionCS = vpi.positionCS;
                 output.normalWS = vni.normalWS;
                 output.uv = input.uv;
+                output.positionWS = vpi.positionWS;
                 output.fogFactor = ComputeFogFactor(vpi.positionCS.z);
                 output.screenPos = ComputeScreenPos(vpi.positionCS);
                 return output;
             }
 
             // [AILab_Section: "Fragment"]
-            // [AILab_Block_Start: "Base Color Sampling"]
-            // [AILab_Intent: "Sample the base texture and multiply it by the solid base color"]
+            // [AILab_Block_Start: "Moebius Fragment"]
+            // [AILab_Intent: "Sample base color and execute Moebius screen-space hatching"]
             // [AILab_Param: "_BaseMap" role="parameter"]
             // [AILab_Param: "_BaseColor" role="parameter"]
-            half4 SampleBaseColor(Varyings input) {
-                float2 uv = TRANSFORM_TEX(input.uv, _BaseMap);
-                return SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv) * _BaseColor;
-            }
-            // [AILab_Block_End]
-
-            // [AILab_Block_Start: "Binary Shadow Mask"]
-            // [AILab_Intent: "Calculate NdotL and apply a hard threshold to determine shadow areas"]
-            // [AILab_Param: "_ShadowThreshold" role="parameter"]
-            half CalcBinaryShadowMask(Varyings input) {
-                Light mainLight = GetMainLight();
-                float NdotL = dot(normalize(input.normalWS), mainLight.direction);
-                // Returns 1.0 for illuminated areas, 0.0 for shadowed areas
-                return step(_ShadowThreshold, NdotL);
-            }
-            // [AILab_Block_End]
-
-            // [AILab_Block_Start: "Screen Space Hatching"]
-            // [AILab_Intent: "Compute screen-space UV coordinates and sample the hatching texture"]
-            // [AILab_Param: "_HatchTex" role="parameter"]
-            // [AILab_Param: "_HatchScale" role="parameter"]
-            half SampleHatchingPattern(Varyings input) {
-                // Perform perspective divide to get normalized screen coordinates
-                float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 0.0001);
-                screenUV *= _HatchScale;
-                return SAMPLE_TEXTURE2D(_HatchTex, sampler_HatchTex, screenUV).r;
-            }
-            // [AILab_Block_End]
-
-            // [AILab_Block_Start: "Final Composition"]
-            // [AILab_Intent: "Composite base color and hatching shadow based on the illumination mask"]
-            half4 StylizedMoebiusFragment(Varyings input) {
-                // 1) Base Color
-                half4 baseColor = SampleBaseColor(input);
+            half4 MoebiusFragment(Varyings input) {
+                float2 uv = input.uv * _BaseMap_ST.xy + _BaseMap_ST.zw;
+                half4 texColor = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv);
+                half4 baseColor = texColor * _BaseColor;
                 
-                // 2) Illumination Mask
-                half shadowMask = CalcBinaryShadowMask(input);
+                half3 finalRGB = ApplyMoebiusShading(input, baseColor.rgb);
                 
-                // 3) Hatching Application
-                half hatchIntensity = SampleHatchingPattern(input);
-                half4 shadowedColor = baseColor * hatchIntensity;
-                
-                // 4) Final Output (Lerp between shadow hatching and solid base color)
-                // Pure flat shading output unaffected by actual light color/attenuation
-                return lerp(shadowedColor, baseColor, shadowMask);
+                return half4(finalRGB, baseColor.a);
             }
             // [AILab_Block_End]
 
             half4 frag(Varyings input) : SV_Target {
                 half4 finalColor = half4(1,1,1,1);
-                finalColor = StylizedMoebiusFragment(input);
+                finalColor = MoebiusFragment(input);
                 return finalColor;
             }
 
             ENDHLSL
         }
 
-        // [AILab_Pass: name="Outline" lightmode="SRPDefaultUnlit"]
+        // [AILab_Pass: name="DepthOnly" lightmode="DepthOnly"]
         Pass {
-            Name "Outline"
-            Tags { "LightMode"="SRPDefaultUnlit" }
+            Name "DepthOnly"
+            Tags { "LightMode"="DepthOnly" }
 
-            Cull Front
+            Cull Back
             ZWrite On
             ZTest LEqual
+            ColorMask 0
 
             HLSLPROGRAM
             #pragma vertex vert
@@ -195,6 +217,9 @@ Shader "AILab/ExampleUnlitShader" {
             TEXTURE2D(_Hatching_Layer2); SAMPLER(sampler_Hatching_Layer2);
             TEXTURE2D(_ShadowDepthThresholds); SAMPLER(sampler_ShadowDepthThresholds);
             TEXTURE2D(_HatchTex); SAMPLER(sampler_HatchTex);
+            TEXTURE2D(_ScreenHatchParams); SAMPLER(sampler_ScreenHatchParams);
+            TEXTURE2D(_ScreenCrossHatchParams); SAMPLER(sampler_ScreenCrossHatchParams);
+            TEXTURE2D(_LightingThresholds); SAMPLER(sampler_LightingThresholds);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseColor;
@@ -208,6 +233,11 @@ Shader "AILab/ExampleUnlitShader" {
                 float _ShadowThreshold;
                 float4 _HatchTex_ST;
                 float _HatchScale;
+                float4 _ScreenHatchParams_ST;
+                float4 _ScreenCrossHatchParams_ST;
+                float4 _LightingThresholds_ST;
+                float _ShadowSmoothing;
+                float _DeepShadowThreshold;
             CBUFFER_END
 
             struct Attributes {
@@ -219,38 +249,32 @@ Shader "AILab/ExampleUnlitShader" {
             };
 
             // [AILab_Section: "Vertex"]
-            // [AILab_Block_Start: "Outline Extrusion"]
-            // [AILab_Intent: "Extrude vertices along their object space normals to create an inverted hull outline"]
-            // [AILab_Param: "_OutlineWidth" role="parameter"]
-            void ExtrudeOutline(inout float3 posOS) 
-            {
-                float3 normalOS = normalize(posOS);
-                posOS += normalOS * _OutlineWidth;
+            // [AILab_Block_Start: "Depth Only Vertex"]
+            // [AILab_Intent: "Pass-through for depth pre-pass"]
+            void DepthOnlyVertex(inout float3 positionOS) {
             }
             // [AILab_Block_End]
 
             Varyings vert(Attributes input) {
                 Varyings output = (Varyings)0;
                 float3 posOS = input.positionOS.xyz;
-                ExtrudeOutline(posOS);
+                DepthOnlyVertex(posOS);
                 VertexPositionInputs vpi = GetVertexPositionInputs(posOS);
                 output.positionCS = vpi.positionCS;
                 return output;
             }
 
             // [AILab_Section: "Fragment"]
-            // [AILab_Block_Start: "Outline Color"]
-            // [AILab_Intent: "Output the solid custom color for the outline pass"]
-            // [AILab_Param: "_OutlineColor" role="parameter"]
-            half4 OutlineColor(Varyings input) 
-            {
-                return _OutlineColor;
+            // [AILab_Block_Start: "Depth Only Fragment"]
+            // [AILab_Intent: "Output zero — ColorMask 0 means only depth buffer is written"]
+            half4 DepthOnlyFragment(Varyings input) {
+                return 0;
             }
             // [AILab_Block_End]
 
             half4 frag(Varyings input) : SV_Target {
                 half4 finalColor = half4(1,1,1,1);
-                finalColor = OutlineColor(input);
+                finalColor = DepthOnlyFragment(input);
                 return finalColor;
             }
 

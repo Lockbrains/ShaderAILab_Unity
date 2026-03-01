@@ -1012,15 +1012,22 @@ Your task is to decompose a user's visual effect request into a structured, step
 
 You MUST return a valid JSON object with the following structure. Output ONLY the JSON, no markdown fences, no explanation text.
 
+=== ARCHITECTURE: MAIN PASS vs ADDITIONAL PASSES ===
+A URP shader has ONE main rendering pass and optionally additional passes (outline, shadow caster, depth-only, etc.).
+Your plan MUST cleanly separate main pass logic from additional pass logic:
+- VertexShader and FragmentShader phases describe ONLY the MAIN RENDERING PASS.
+- MultiPass phase describes ALL ADDITIONAL PASSES. Each additional pass is self-contained with its own vertex and fragment logic.
+- There MUST be NO overlap. Do NOT include outline vertex/fragment, shadow caster, or depth-only logic in the VertexShader/FragmentShader phases.
+
 The plan must cover these phases (include ALL of them, even if a phase has minimal content):
 
 1. VisualAnalysis - Analyze the key visual characteristics of the requested effect. Identify common implementation techniques. Reference well-known shaders or papers if applicable.
-2. DataFlow - Determine which Attributes (a2v) and Varyings (v2f) fields are needed. Available Attributes: positionOS, normalOS, tangentOS, uv, uv2, color. Available Varyings: positionCS, normalWS, tangentWS, bitangentWS, uv, positionWS, viewDirWS, fogFactor, shadowCoord, vertexColor, screenPos.
-3. Textures - List all textures and resources needed (ramp textures, normal maps, noise textures, etc.). For each, suggest whether the user should provide it, or if it can be procedurally generated in shader, or if an AI image generation model could create it (note: AI generation capability may be limited).
-4. VertexShader - Describe vertex processing steps needed (vertex displacement, normal modification, etc.). If no vertex modification is needed, state that the default vertex transform suffices.
-5. FragmentShader - Break down the fragment shader into logical steps/blocks. Each step should be a self-contained function. This is typically the most detailed phase.
-6. ShaderOptions - Specify render state: Cull mode, Blend mode, ZWrite, ZTest, ColorMask, Stencil settings, RenderQueue, RenderType. Only include non-default values.
-7. MultiPass - If multiple passes are needed (e.g., outline pass, shadow caster, depth-only), describe each additional pass and its purpose. If single pass suffices, state so.
+2. DataFlow - Determine which Attributes (a2v) and Varyings (v2f) fields are needed FOR THE MAIN PASS. Available Attributes: positionOS, normalOS, tangentOS, uv, uv2, color. Available Varyings: positionCS, normalWS, tangentWS, bitangentWS, uv, positionWS, viewDirWS, fogFactor, shadowCoord, vertexColor, screenPos.
+3. Textures - List all textures and resources needed across ALL passes.
+4. VertexShader - MAIN PASS ONLY. Vertex displacement or modification for the primary visual effect. Do NOT include outline extrusion, shadow caster, or other additional pass vertex logic here.
+5. FragmentShader - MAIN PASS ONLY. The primary visual effect rendering logic. Do NOT include outline color output, shadow caster fragment, or other additional pass fragment logic here.
+6. ShaderOptions - Render state for the MAIN PASS. Values must be valid Unity ShaderLab tokens ONLY (e.g., ""Back"", ""Off"", ""On"", ""LEqual"", ""Opaque"", ""Geometry""). Never include descriptions or comments in values.
+7. MultiPass - ALL ADDITIONAL PASSES (outline, shadow caster, depth-only, etc.). Each item describes one complete additional pass including its purpose, vertex logic, fragment logic, and render state. If only the main pass is needed, include a single item stating ""single pass sufficient"".
 
 JSON SCHEMA:
 {
@@ -1046,10 +1053,13 @@ IMPORTANT RULES:
 - The ""phases"" array MUST contain exactly 7 objects, one for each phase type, in the order listed above.
 - Each phase MUST have at least one item in its ""items"" array.
 - The ""proposal"" should be detailed and actionable, explaining WHY certain choices are made.
-- For FragmentShader phase, break the effect into small, composable function blocks (e.g., ""Base Color Sampling"", ""Normal Mapping"", ""Lighting Calculation"", ""Rim Light"", ""Final Composition"").
-- For DataFlow phase, items should use field names as keys (e.g., ""normalWS"", ""viewDirWS"") with category ""Attributes"" or ""Varyings"".
-- For Textures phase, items should use property names as keys (e.g., ""_RampTex"", ""_NormalMap"") with category indicating source (""User Provided"", ""Procedural"", ""AI Generated"").
-- Ask clarifying questions when the user's request is ambiguous about specific visual details.";
+- VertexShader items: ONLY main pass vertex logic. Usually just 1 item (""default_transform"" or a specific displacement).
+- FragmentShader items: ONLY main pass fragment steps. Keep it focused — a few composable steps, NOT separate blocks for every sub-calculation.
+- ShaderOptions items: keys must be render state keywords (""Cull"", ""Blend"", ""ZWrite"", ""ZTest"", ""RenderQueue"", ""RenderType""). Values MUST be valid ShaderLab tokens only — never Chinese text, never descriptions, never comments.
+- MultiPass items: each item = one complete additional pass. The key should be the pass name.
+- For DataFlow phase, items should use field names as keys with category ""Attributes"" or ""Varyings"".
+- For Textures phase, items should use property names as keys with category ""User Provided"", ""Procedural"", or ""AI Generated"".
+- NEVER include outline, shadow caster, depth-only, or any non-main-pass logic in VertexShader or FragmentShader phases.";
 
         public static string BuildPlanDecompositionSystemPrompt(ShaderDocument doc)
         {
@@ -1263,72 +1273,82 @@ RULES:
             sb.AppendLine();
             sb.AppendLine();
             sb.AppendLine("=== MAIN PASS CODE GENERATION ===");
-            sb.AppendLine("Generate the COMPLETE code for the shader's main rendering pass (both vertex and fragment logic) in a SINGLE response.");
+            sb.AppendLine("Generate the code for the shader's MAIN rendering pass ONLY.");
+            sb.AppendLine("Do NOT generate code for outline passes, shadow caster passes, depth-only passes, or ANY additional pass.");
+            sb.AppendLine("Additional passes are handled separately by the MultiPass phase — you must IGNORE them completely.");
             sb.AppendLine();
             sb.AppendLine($"ORIGINAL USER REQUEST: {plan.UserRequest}");
             sb.AppendLine();
-            sb.AppendLine("CONFIRMED PLAN PHASES:");
 
-            foreach (var phase in plan.Phases)
+            sb.AppendLine("RELEVANT PLAN CONTEXT (main pass only):");
+
+            var visAnalysis = plan.FindPhaseByType(PlanPhaseType.VisualAnalysis);
+            if (visAnalysis != null && visAnalysis.IsTerminal)
             {
-                if (!phase.IsTerminal) continue;
-                sb.AppendLine($"\n--- {ShaderPlan.GetPhaseTypeLabel(phase.Type)} ---");
-                sb.AppendLine(phase.LLMProposal);
-                if (phase.Items != null)
-                {
-                    foreach (var item in phase.Items)
-                    {
-                        if (item.IsConfirmed || phase.Status == PhaseStatus.Confirmed)
+                sb.AppendLine($"\n--- Visual Analysis ---");
+                sb.AppendLine(visAnalysis.LLMProposal);
+            }
+
+            var vertPhase = plan.FindPhaseByType(PlanPhaseType.VertexShader);
+            if (vertPhase != null && vertPhase.IsTerminal)
+            {
+                sb.AppendLine($"\n--- Vertex Shader (Main Pass) ---");
+                sb.AppendLine(vertPhase.LLMProposal);
+                if (vertPhase.Items != null)
+                    foreach (var item in vertPhase.Items)
+                        if (item.IsConfirmed || vertPhase.Status == PhaseStatus.Confirmed)
                             sb.AppendLine($"  * {item.Key}: {item.Description} - {item.Detail}");
-                    }
-                }
+            }
+
+            var fragPhase = plan.FindPhaseByType(PlanPhaseType.FragmentShader);
+            if (fragPhase != null && fragPhase.IsTerminal)
+            {
+                sb.AppendLine($"\n--- Fragment Shader (Main Pass) ---");
+                sb.AppendLine(fragPhase.LLMProposal);
+                if (fragPhase.Items != null)
+                    foreach (var item in fragPhase.Items)
+                        if (item.IsConfirmed || fragPhase.Status == PhaseStatus.Confirmed)
+                            sb.AppendLine($"  * {item.Key}: {item.Description} - {item.Detail}");
             }
 
             sb.AppendLine();
-            sb.AppendLine("FRAMEWORK ARCHITECTURE — READ CAREFULLY:");
+            sb.AppendLine("FRAMEWORK RULES:");
+            sb.AppendLine("The framework auto-generates vert() and frag() entry points. You MUST NOT write vert() or frag().");
             sb.AppendLine();
-            sb.AppendLine("The framework auto-generates vert() and frag() entry points. You MUST NOT generate vert() or frag().");
-            sb.AppendLine("You produce modular BLOCKS that the framework wires together.");
+            sb.AppendLine("Generate EXACTLY this structure:");
+            sb.AppendLine("1. ONE vertex block — `// [AILab_Section: \"Vertex\"]`");
+            sb.AppendLine("   Signature: `void FuncName(inout float3 positionOS)` (one param only).");
+            sb.AppendLine("   If no displacement needed, make it a no-op pass-through.");
             sb.AppendLine();
-            sb.AppendLine("BLOCK STRUCTURE for the main pass:");
-            sb.AppendLine("1. ONE vertex block (Section: \"Vertex\"):");
-            sb.AppendLine("   - Signature: `void FuncName(inout float3 positionOS)` — exactly ONE param.");
-            sb.AppendLine("   - The framework passes the object-space position. Modify it for displacement, etc.");
-            sb.AppendLine("   - If no vertex displacement is needed, generate a simple pass-through.");
+            sb.AppendLine("2. Zero or more helper blocks — `// [AILab_Section: \"Helper Functions\"]`");
+            sb.AppendLine("   Any utility functions called by the main fragment. Can have any signature.");
             sb.AppendLine();
-            sb.AppendLine("2. Helper functions (Section: \"Helper Functions\"):");
-            sb.AppendLine("   - Any utility/helper functions called by the main fragment function.");
-            sb.AppendLine("   - Can have any signature (e.g., `half CalcShadow(Varyings input)`).");
-            sb.AppendLine("   - These are NOT auto-called by the framework; they are only called by your composition function.");
+            sb.AppendLine("3. ONE fragment block — `// [AILab_Section: \"Fragment\"]`");
+            sb.AppendLine("   Signature: `half4 FuncName(Varyings input)` (one param only).");
+            sb.AppendLine("   This is the ONLY function auto-called by the framework.");
+            sb.AppendLine("   It should call your helpers and return the final color.");
             sb.AppendLine();
-            sb.AppendLine("3. ONE final fragment block (Section: \"Fragment\"):");
-            sb.AppendLine("   - Signature: `half4 FuncName(Varyings input)` — exactly ONE param.");
-            sb.AppendLine("   - This is the ONLY function auto-called by the framework's frag().");
-            sb.AppendLine("   - It should call your helper functions and return the final color.");
-            sb.AppendLine();
-            sb.AppendLine("AVAILABLE VARYINGS (from DataFlow):");
+
             if (doc?.ActivePass?.DataFlow != null)
             {
+                sb.AppendLine("AVAILABLE VARYINGS:");
                 foreach (var vf in doc.ActivePass.DataFlow.VaryingFields)
-                {
                     if (vf.IsActive)
                         sb.AppendLine($"   - {vf.HLSLType} {vf.Name}");
-                }
+                sb.AppendLine();
             }
-            sb.AppendLine();
-            sb.AppendLine("IMPORTANT:");
-            sb.AppendLine("- Generate AT MOST 1 Vertex block + a few Helper blocks + 1 Fragment block.");
-            sb.AppendLine("- If you need URP lighting (Light, GetMainLight, etc.), just use the API — the framework auto-adds includes.");
-            sb.AppendLine("- Do NOT generate multiple Fragment-section blocks. Put helpers in Helper Functions section.");
-            sb.AppendLine("- Wrap code in ```hlsl blocks with proper AILab tags.");
+
+            sb.AppendLine("STRICT CONSTRAINTS:");
+            sb.AppendLine("- EXACTLY 1 Vertex block + helpers + EXACTLY 1 Fragment block.");
+            sb.AppendLine("- NO outline, shadow caster, depth-only, or additional pass code.");
+            sb.AppendLine("- URP Lighting.hlsl is auto-added if you use GetMainLight/Light. Just use the API.");
+            sb.AppendLine("- Wrap code in ```hlsl blocks with AILab tags.");
 
             if (doc != null)
             {
                 sb.AppendLine();
-                sb.AppendLine("CURRENT SHADER CONTEXT:");
-                sb.AppendLine($"- Shader name: {doc.ShaderName}");
-                sb.AppendLine($"- Existing properties: {FormatProperties(doc)}");
-                sb.AppendLine($"- Passes: {FormatPasses(doc)}");
+                sb.AppendLine($"Shader name: {doc.ShaderName}");
+                sb.AppendLine($"Properties: {FormatProperties(doc)}");
             }
 
             return sb.ToString();

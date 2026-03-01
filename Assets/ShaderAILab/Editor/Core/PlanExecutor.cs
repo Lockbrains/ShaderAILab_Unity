@@ -277,26 +277,56 @@ namespace ShaderAILab.Editor.Core
             return changed;
         }
 
+        static readonly System.Text.RegularExpressions.Regex ReNonAscii =
+            new System.Text.RegularExpressions.Regex(@"[^\x00-\x7F]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        static readonly HashSet<string> ValidRenderStateTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "On", "Off", "Back", "Front",
+            "One", "Zero", "SrcAlpha", "OneMinusSrcAlpha", "DstAlpha", "OneMinusDstAlpha",
+            "SrcColor", "OneMinusSrcColor", "DstColor", "OneMinusDstColor",
+            "Always", "LEqual", "Less", "GEqual", "Greater", "Equal", "NotEqual", "Never",
+            "Keep", "Replace", "IncrSat", "DecrSat", "Invert", "IncrWrap", "DecrWrap",
+            "Opaque", "Transparent", "TransparentCutout", "Background", "Geometry",
+            "AlphaTest", "Overlay",
+            "0", "R", "G", "B", "A", "RG", "RB", "GB", "RGB", "RGBA"
+        };
+
         static string SanitizeOptionValue(string value)
         {
-            if (string.IsNullOrEmpty(value)) return value;
+            if (string.IsNullOrEmpty(value)) return null;
             value = value.Trim().Trim('"');
+            if (ReNonAscii.IsMatch(value))
+                value = ReNonAscii.Replace(value, "").Trim();
             int braceIdx = value.IndexOf('{');
             if (braceIdx >= 0) value = value.Substring(0, braceIdx).Trim();
-            return value;
+            string[] parts = value.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return null;
+
+            string first = parts[0];
+            if (ValidRenderStateTokens.Contains(first))
+                return parts.Length <= 2 ? value.Trim() : first;
+            foreach (string token in parts)
+                if (ValidRenderStateTokens.Contains(token)) return token;
+            return null;
         }
 
         static string SanitizeTagValue(string value)
         {
-            if (string.IsNullOrEmpty(value)) return value;
+            if (string.IsNullOrEmpty(value)) return "Opaque";
             value = value.Trim().Trim('"');
+            if (ReNonAscii.IsMatch(value))
+                value = ReNonAscii.Replace(value, "").Trim();
             if (value.Contains("Tags") || value.Contains("{") || value.Contains("="))
             {
                 var match = System.Text.RegularExpressions.Regex.Match(value, @"""([^""]+)""");
                 if (match.Success) return match.Groups[1].Value;
             }
             string[] parts = value.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length > 0 ? parts[0] : value;
+            if (parts.Length == 0) return "Opaque";
+            string first = parts[0];
+            if (ValidRenderStateTokens.Contains(first)) return first;
+            return first;
         }
 
         bool ExecuteTexturesPhase(ShaderDocument doc, PlanPhase phase)
